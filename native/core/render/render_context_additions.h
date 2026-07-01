@@ -29,119 +29,21 @@
 #pragma once
 
 #include "render_context.h"
-#include <vector>
 
 namespace community_ar {
 
 // -----------------------------------------------------------------------------
-// VertexBuffer — RAII wrapper around a GPU vertex buffer (VBO on GLES,
-// MTLBuffer on Metal).
+// CONSOLIDATED (Phase 3): the extended render API that used to live on a
+// separate RenderContextEx subclass has been folded into the base
+// RenderContext interface (see render_context.h). VertexBuffer,
+// InstancedVertexFormat, drawTriangles, createMRTFramebuffer,
+// createFramebufferForTexture, and the instanced-draw helpers are now base
+// methods.
+//
+// RenderContextEx remains as a backward-compatibility alias so existing call
+// sites — `static_cast<RenderContextEx*>(ctx)` and `RenderContextEx*` locals
+// — keep compiling. New code should just use RenderContext directly.
 // -----------------------------------------------------------------------------
-class VertexBuffer {
-public:
-    virtual ~VertexBuffer() = default;
-    virtual uint64_t nativeHandle() const = 0;
-    virtual size_t   sizeBytes() const = 0;
-};
-
-// -----------------------------------------------------------------------------
-// InstancedVertexFormat — describes how per-vertex and per-instance attribute
-// data are laid out in their respective buffers.
-// -----------------------------------------------------------------------------
-struct InstancedAttr {
-    int location;   // layout(location = N) in the shader
-    int size;       // 1..4 floats
-    int offset;     // bytes within the stride
-};
-
-struct InstancedVertexFormat {
-    int perVertexStride;
-    std::vector<InstancedAttr> perVertexAttrs;
-    int perInstanceStride;
-    std::vector<InstancedAttr> perInstanceAttrs;
-};
-
-// -----------------------------------------------------------------------------
-// RenderContext additions (would be merged into RenderContext interface)
-// -----------------------------------------------------------------------------
-class RenderContextEx : public RenderContext {
-public:
-    virtual std::unique_ptr<VertexBuffer> createVertexBuffer(
-        const void* data, size_t bytes) = 0;
-
-    virtual std::unique_ptr<VertexBuffer> createDynamicVertexBuffer(
-        size_t maxBytes) = 0;
-
-    virtual void uploadDynamicVertexBuffer(VertexBuffer* vbo,
-                                           const void* data, size_t bytes) = 0;
-
-    // An instanced-aware shader needs to know the vertex format up front so
-    // it can wire attribute bindings on creation.
-    virtual std::unique_ptr<ShaderProgram> createInstancedShader(
-        const std::string& vertexSrc,
-        const std::string& fragmentSrc,
-        const InstancedVertexFormat& fmt) = 0;
-
-    virtual void drawInstancedQuads(ShaderProgram* program,
-                                    VertexBuffer* perVertex, int vertexCount,
-                                    VertexBuffer* perInstance, int instanceCount) = 0;
-
-    // Create a framebuffer that renders into an EXISTING owned texture.
-    // Used by the TFLite blitter for OES→sampler2D conversion.
-    virtual std::unique_ptr<Framebuffer> createFramebufferForTexture(
-        TextureHandle& tex) = 0;
-
-    virtual void enableAlphaBlending(bool enable) = 0;
-
-    virtual void currentFramebufferSize(int* outW, int* outH) const = 0;
-
-    // -------------------------------------------------------------------------
-    // Phase 2 addition (retroactive)
-    //
-    // Draw raw triangles from a vertex buffer. Unlike drawFullscreenQuad,
-    // this draws an arbitrary triangle list — used by mask_rasterizer to
-    // emit landmark-contour triangle fans.
-    //
-    // - shader:      already-bound shader program
-    // - vbo:         vertex buffer containing the triangle data; layout must
-    //                match what shader expects (position + alpha for masks)
-    // - firstVertex: index of the first vertex to draw
-    // - vertexCount: number of vertices to draw (must be multiple of 3 for
-    //                GL_TRIANGLES topology)
-    // -------------------------------------------------------------------------
-    virtual void drawTriangles(ShaderProgram* shader,
-                               VertexBuffer* vbo,
-                               int firstVertex,
-                               int vertexCount) = 0;
-
-    // -------------------------------------------------------------------------
-    // Phase 3 addition
-    //
-    // Create a framebuffer with multiple color attachments (MRT — Multiple
-    // Render Targets). A fragment shader bound to this framebuffer can
-    // declare multiple `out` variables, one per attachment, and write all
-    // outputs in a single pass.
-    //
-    // Use cases in the codebase:
-    //   - multiclass_segmenter_backend: split 6-channel model output into
-    //     6 separate R8 textures in one pass
-    //   - (future) beauty v2 multi-band composition: write low-freq, mid-freq,
-    //     and high-freq bands simultaneously
-    //
-    // Constraints:
-    //   - All attachments must have the same width and height
-    //   - All attachments must have compatible internal formats (most
-    //     hardware allows mixing R8, RG8, RGBA8 freely; depth/stencil formats
-    //     cannot be color attachments)
-    //   - Max attachments: GL_MAX_DRAW_BUFFERS, typically 8 on Android GLES
-    //     3.0+ and on iOS Metal. We rely on at most 6 for Phase 3.
-    //
-    // The textures must outlive the returned Framebuffer; the Framebuffer
-    // holds non-owning references to them. Typically the caller keeps the
-    // attached textures as members alongside the framebuffer.
-    // -------------------------------------------------------------------------
-    virtual std::unique_ptr<Framebuffer> createMRTFramebuffer(
-        const std::vector<const TextureHandle*>& colorAttachments) = 0;
-};
+using RenderContextEx = RenderContext;
 
 }  // namespace community_ar

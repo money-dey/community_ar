@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace community_ar {
 
@@ -95,6 +96,31 @@ public:
 };
 
 // -----------------------------------------------------------------------------
+// VertexBuffer — RAII wrapper around a GPU vertex buffer (VBO on GLES,
+// MTLBuffer on Metal). Folded in from render_context_additions.h.
+// -----------------------------------------------------------------------------
+class VertexBuffer {
+public:
+    virtual ~VertexBuffer() = default;
+    virtual uint64_t nativeHandle() const = 0;
+    virtual size_t   sizeBytes() const = 0;
+};
+
+// Describes how per-vertex and per-instance attribute data are laid out.
+struct InstancedAttr {
+    int location;   // layout(location = N) in the shader
+    int size;       // 1..4 floats
+    int offset;     // bytes within the stride
+};
+
+struct InstancedVertexFormat {
+    int perVertexStride;
+    std::vector<InstancedAttr> perVertexAttrs;
+    int perInstanceStride;
+    std::vector<InstancedAttr> perInstanceAttrs;
+};
+
+// -----------------------------------------------------------------------------
 // RenderContext — the top-level interface
 // -----------------------------------------------------------------------------
 class RenderContext {
@@ -122,6 +148,62 @@ public:
     // -- Introspection --
     virtual const char* backendName() const = 0;
     virtual int maxTextureSize() const = 0;
+
+    // -------------------------------------------------------------------------
+    // Extended API (folded in from render_context_additions.h / RenderContextEx).
+    //
+    // These are declared NON-pure with default no-op / null implementations so
+    // that concrete backends stay instantiable while only some of them are
+    // implemented. Backends override the ones they support; callers that need
+    // an unimplemented capability get a null/no-op and should degrade.
+    //
+    // Implementation status at consolidation time:
+    //   - drawTriangles / createMRTFramebuffer .... implemented by GLES + Metal
+    //                                               (in *_phase3_updates files)
+    //   - all others .............................. NOT yet implemented on any
+    //                                               backend; default stubs here.
+    //     Notably createFramebufferForTexture is required by the effect-chain
+    //     ping-pong FBOs and beauty resource allocation but has no backend
+    //     implementation — a pre-existing gap surfaced by this consolidation.
+    // -------------------------------------------------------------------------
+    virtual std::unique_ptr<VertexBuffer> createVertexBuffer(
+        const void* data, size_t bytes) { return nullptr; }
+
+    virtual std::unique_ptr<VertexBuffer> createDynamicVertexBuffer(
+        size_t maxBytes) { return nullptr; }
+
+    virtual void uploadDynamicVertexBuffer(VertexBuffer* vbo,
+                                           const void* data, size_t bytes) {}
+
+    virtual std::unique_ptr<ShaderProgram> createInstancedShader(
+        const std::string& vertexSrc,
+        const std::string& fragmentSrc,
+        const InstancedVertexFormat& fmt) { return nullptr; }
+
+    virtual void drawInstancedQuads(ShaderProgram* program,
+                                    VertexBuffer* perVertex, int vertexCount,
+                                    VertexBuffer* perInstance,
+                                    int instanceCount) {}
+
+    // Create a framebuffer that renders into an EXISTING owned texture.
+    virtual std::unique_ptr<Framebuffer> createFramebufferForTexture(
+        TextureHandle& tex) { return nullptr; }
+
+    virtual void enableAlphaBlending(bool enable) {}
+
+    virtual void currentFramebufferSize(int* outW, int* outH) const {}
+
+    // Draw an arbitrary triangle list from a vertex buffer (mask rasterizer).
+    virtual void drawTriangles(ShaderProgram* shader,
+                               VertexBuffer* vbo,
+                               int firstVertex,
+                               int vertexCount) {}
+
+    // Create a framebuffer with multiple color attachments (MRT).
+    virtual std::unique_ptr<Framebuffer> createMRTFramebuffer(
+        const std::vector<const TextureHandle*>& colorAttachments) {
+        return nullptr;
+    }
 };
 
 // -----------------------------------------------------------------------------

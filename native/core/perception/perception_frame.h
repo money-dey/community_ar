@@ -11,6 +11,8 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <vector>
 
 namespace community_ar {
@@ -123,6 +125,29 @@ struct PerceptionFrame {
     const TextureHandle* hairMask   = nullptr;
     const TextureHandle* teethMask  = nullptr;
     const TextureHandle* beardMask  = nullptr;
+
+    // === Phase 3 additions (merged from perception_frame_phase3_updates.h) ===
+    //
+    // The full multi-channel segmentation output, populated when the
+    // multiclass segmenter is active. Each channel is a shared_ptr; nullptr
+    // if the active backend doesn't produce it. The Phase 1 `hairMask` above
+    // continues to work — when multiclass is active it points at the same
+    // texture as segmentationMasks.hair.
+    struct SegmentationMasks {
+        std::shared_ptr<TextureHandle> background;
+        std::shared_ptr<TextureHandle> hair;
+        std::shared_ptr<TextureHandle> bodySkin;
+        std::shared_ptr<TextureHandle> faceSkin;
+        std::shared_ptr<TextureHandle> clothes;
+        std::shared_ptr<TextureHandle> others;
+
+        // True if this frame contains fresh segmenter output. Some backends
+        // throttle to every Nth frame for performance.
+        bool fresh = false;
+
+        // Backend name for diagnostics.
+        std::string backendName;
+    } segmentationMasks;
 };
 
 }  // namespace community_ar
