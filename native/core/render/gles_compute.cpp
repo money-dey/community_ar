@@ -21,6 +21,7 @@
 
 #include "compute_primitives.h"
 #include <GLES3/gl31.h>
+#include <GLES2/gl2ext.h>   // GL_TEXTURE_EXTERNAL_OES (OES_EGL_image_external)
 #include <android/log.h>
 #include <cstring>
 
@@ -187,7 +188,9 @@ private:
     size_t bytes_;
     GLuint srcBuffer_ = 0;
     GLsync fence_ = 0;
-    void*  mapped_ = nullptr;
+    // Mapped lazily inside the const isReady() once the fence signals, so it
+    // (like resolved_) must be mutable.
+    mutable void* mapped_ = nullptr;
     mutable bool resolved_ = false;
 };
 
