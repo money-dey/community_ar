@@ -15,6 +15,7 @@
 // =============================================================================
 
 #include "phase0_session.h"
+#include "phase0_session_phase2.h"  // complete Phase2Members for p2_ lifetime
 #include <chrono>
 
 namespace community_ar {
@@ -82,7 +83,8 @@ void main() {
 // -----------------------------------------------------------------------------
 // Lifecycle
 // -----------------------------------------------------------------------------
-Phase0Session::Phase0Session(const CARPhase0Config& cfg) {
+Phase0Session::Phase0Session(const CARPhase0Config& cfg)
+    : p2_(std::make_unique<Phase2Members>()) {
 #if defined(__ANDROID__)
     if (cfg.backend == CAR_BACKEND_GLES) {
         ctx_ = createGlesRenderContext(

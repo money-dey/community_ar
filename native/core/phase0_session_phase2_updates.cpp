@@ -18,28 +18,55 @@
 // =============================================================================
 
 #include "phase0_session.h"
+#include "phase0_session_phase2.h"  // Phase2Members definition
 #include "effects/effect_graph.h"
 #include "perception/perception_pipeline.h"
 #include "perception/segmenter_backend_factory.h"  // SegmenterBackendConfig
+#include "ml/neural_backend.h"                      // BackendConfig + factories
 #include <mutex>
 #include <queue>
 
 namespace community_ar {
 
-// ----------------------------------------------------------------------------
-// Phase0Session::Impl additions
-// (Conceptual — the actual diff against the existing Impl struct adds these
-// members to the existing one rather than declaring a new Impl.)
-// ----------------------------------------------------------------------------
-struct Phase0Session::Phase2Members {
-    std::unique_ptr<EffectGraph>        effectGraph;
-    std::unique_ptr<PerceptionPipeline> perceptionPipeline;
+// Phase2Members is defined in phase0_session_phase2.h so both this file and
+// phase0_session.cpp (which owns p2_'s lifetime) share one layout.
 
-    // Render-thread work queue. Public ABI calls push lambdas here; the
-    // render thread drains the queue at the top of each frame.
-    std::mutex                                 queueMutex;
-    std::queue<std::function<void()>>          pending;
-};
+// ----------------------------------------------------------------------------
+// Backing-object accessors
+// ----------------------------------------------------------------------------
+RenderContext* Phase0Session::renderContext() {
+    return ctx_.get();
+}
+
+NeuralBackend* Phase0Session::neuralBackend() {
+    if (!p2_->neuralBackend) {
+        BackendConfig bc;
+        bc.renderContext = ctx_.get();
+        // NOTE: CARPhase0Config carries no model directory, so bc.modelDirectory
+        // is left empty here. Device bring-up must supply the model path before
+        // any model can actually load — see the session-integration follow-up.
+#if defined(__ANDROID__)
+        p2_->neuralBackend = createTfliteBackend(bc);
+#elif defined(__APPLE__)
+        p2_->neuralBackend = createCoreMLBackend(bc);
+#endif
+    }
+    return p2_->neuralBackend.get();
+}
+
+const TextureHandle& Phase0Session::cameraOutputTexture() {
+    // The Phase 2 render path samples the current camera frame from here. The
+    // frame-submit path is expected to populate this each frame; until that is
+    // wired at bring-up, a default (invalid) handle keeps the path type-correct.
+    if (!p2_->cameraTex) {
+        p2_->cameraTex = std::make_unique<TextureHandle>();
+    }
+    return *p2_->cameraTex;
+}
+
+Framebuffer* Phase0Session::displayFramebuffer() {
+    return outputFbo_.get();
+}
 
 // ----------------------------------------------------------------------------
 // Accessors used by the Phase 2 ABI
