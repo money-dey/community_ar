@@ -53,9 +53,6 @@ flutter:
         pluginClass: CommunityARPlugin
       ios:
         pluginClass: CommunityARPlugin
-        # Swift package manager support (preferred over CocoaPods on iOS 15+).
-        # Comment this out if you need to support older CocoaPods-only setups.
-        sharedDarwinSource: true
 
   # No assets in the plugin itself — MediaPipe models are downloaded via
   # tools/fetch_models.sh and bundled by the platform-specific build steps
