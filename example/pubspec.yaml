@@ -1,0 +1,25 @@
+name: community_ar_example
+description: Live lip-recolor demo for the community_ar Flutter plugin.
+publish_to: 'none'   # not for pub.dev — this is a runnable example only
+version: 0.2.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Depend on the plugin via the parent directory. When the example app is
+  # opened with `flutter run`, pub resolves this to the local plugin source.
+  community_ar:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

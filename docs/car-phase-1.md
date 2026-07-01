@@ -1,4 +1,4 @@
-# Community AR — Phase 1: Perception
+# Community AR Phase 1 — Perception
 
 The perception layer. Every frame produces a complete `PerceptionFrame`:
 landmarks, iris, blendshapes, face pose, hair mask, skin tone — all

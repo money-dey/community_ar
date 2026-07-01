@@ -11,6 +11,17 @@
 //   - Alpha-blending toggle
 //   - Viewport reflection
 //
+// Capabilities added in Phase 2 (retroactively documented here — the mask
+// rasterizer needed them but they were never added to this header):
+//   - Raw triangle draw (draws N triangles from a vertex buffer; distinct
+//     from drawFullscreenQuad which always draws two triangles covering
+//     the viewport)
+//
+// Capabilities added in Phase 3:
+//   - Multi-render-target framebuffer creation (used by the multiclass
+//     segmenter to split one tensor into 6 single-channel textures in one
+//     pass; also useful for beauty v2's multi-band composition)
+//
 // These should be folded into render_context.h proper — this file documents
 // the deltas for the fix series.
 // =============================================================================
@@ -83,6 +94,54 @@ public:
     virtual void enableAlphaBlending(bool enable) = 0;
 
     virtual void currentFramebufferSize(int* outW, int* outH) const = 0;
+
+    // -------------------------------------------------------------------------
+    // Phase 2 addition (retroactive)
+    //
+    // Draw raw triangles from a vertex buffer. Unlike drawFullscreenQuad,
+    // this draws an arbitrary triangle list — used by mask_rasterizer to
+    // emit landmark-contour triangle fans.
+    //
+    // - shader:      already-bound shader program
+    // - vbo:         vertex buffer containing the triangle data; layout must
+    //                match what shader expects (position + alpha for masks)
+    // - firstVertex: index of the first vertex to draw
+    // - vertexCount: number of vertices to draw (must be multiple of 3 for
+    //                GL_TRIANGLES topology)
+    // -------------------------------------------------------------------------
+    virtual void drawTriangles(ShaderProgram* shader,
+                               VertexBuffer* vbo,
+                               int firstVertex,
+                               int vertexCount) = 0;
+
+    // -------------------------------------------------------------------------
+    // Phase 3 addition
+    //
+    // Create a framebuffer with multiple color attachments (MRT — Multiple
+    // Render Targets). A fragment shader bound to this framebuffer can
+    // declare multiple `out` variables, one per attachment, and write all
+    // outputs in a single pass.
+    //
+    // Use cases in the codebase:
+    //   - multiclass_segmenter_backend: split 6-channel model output into
+    //     6 separate R8 textures in one pass
+    //   - (future) beauty v2 multi-band composition: write low-freq, mid-freq,
+    //     and high-freq bands simultaneously
+    //
+    // Constraints:
+    //   - All attachments must have the same width and height
+    //   - All attachments must have compatible internal formats (most
+    //     hardware allows mixing R8, RG8, RGBA8 freely; depth/stencil formats
+    //     cannot be color attachments)
+    //   - Max attachments: GL_MAX_DRAW_BUFFERS, typically 8 on Android GLES
+    //     3.0+ and on iOS Metal. We rely on at most 6 for Phase 3.
+    //
+    // The textures must outlive the returned Framebuffer; the Framebuffer
+    // holds non-owning references to them. Typically the caller keeps the
+    // attached textures as members alongside the framebuffer.
+    // -------------------------------------------------------------------------
+    virtual std::unique_ptr<Framebuffer> createMRTFramebuffer(
+        const std::vector<const TextureHandle*>& colorAttachments) = 0;
 };
 
 }  // namespace community_ar

@@ -1,4 +1,4 @@
-# Community AR — Phase 0: Plumbing
+# Community AR Phase 0 — Foundations: Camera-to-Flutter GPU pipeline.
 
 The data-highway smoke test. Camera frame enters at one end, gets handed
 through the platform adapter to C++, runs through a trivial GPU shader,

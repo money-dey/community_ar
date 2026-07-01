@@ -46,6 +46,28 @@ set(CAR_SOURCES
 
     # Render — debug overlay (cross-platform)
     native/core/render/debug_overlay.cpp
+
+    # Phase 2 — effects engine
+    native/core/effects/effect_graph.cpp
+    native/core/effects/mask_rasterizer.cpp
+    native/core/effects/masked_recolor_effect.cpp
+    native/core/effects/lips_effect.cpp
+    native/core/ffi/community_ar_phase2_api.cpp
+    native/core/phase0_session_phase2_updates.cpp
+
+    # Phase 3 — perception backends (segmenter abstraction)
+    native/core/perception/segmenter_backend_factory.cpp
+    native/core/perception/hair_segmenter_backend.cpp
+    native/core/perception/multiclass_segmenter_backend.cpp
+    native/core/perception/perception_pipeline_phase3_updates.cpp
+
+    # Phase 3 — effect graph upgrades + beauty
+    native/core/effects/mask_resource_pool.cpp
+    native/core/effects/skin_smooth_effect.cpp
+    native/core/ffi/community_ar_phase3_api.cpp
+
+    # Phase 3 — render context additions
+    native/core/render/gles_render_context_phase3_updates.cpp
 )
 
 # -----------------------------------------------------------------------------
@@ -78,6 +100,7 @@ elseif(APPLE)
         # Render — Metal backend
         native/core/render/metal_render_context.mm
         native/core/render/metal_compute.mm
+        native/core/render/metal_render_context_phase3_updates.mm
 
         # ML — Core ML
         native/core/ml/coreml_backend.mm

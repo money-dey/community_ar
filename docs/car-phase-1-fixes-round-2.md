@@ -1,4 +1,4 @@
-# Community AR — Phase 1 second-round fixes
+# Community AR Phase 1 — second-round fixes
 
 Two remaining Phase 1 caveats closed:
 

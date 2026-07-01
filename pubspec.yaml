@@ -1,0 +1,63 @@
+name: community_ar
+description: >
+  Open-source face AR for Flutter. Beauty filters, hair effects, and
+  accessories. Production-grade quality in a ~25 MB library.
+version: 0.2.0
+homepage: https://github.com/your-org/community_ar
+repository: https://github.com/your-org/community_ar
+issue_tracker: https://github.com/your-org/community_ar/issues
+documentation: https://github.com/your-org/community_ar/tree/main/docs
+
+# pub.dev topic tags (used in search). Up to 5 allowed.
+topics:
+  - ar
+  - augmented-reality
+  - camera
+  - face-detection
+  - beauty-filter
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.1.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+# -----------------------------------------------------------------------------
+# Flutter plugin declaration.
+#
+# Tells the Flutter tool that this package is a *plugin* (not a pure Dart
+# package), and points to the native entry classes for each supported platform.
+#
+# Android:
+#   - package:  matches the AndroidManifest.xml's `package` attribute and the
+#               directory path under android/src/main/kotlin/
+#   - pluginClass: the Kotlin/Java class implementing FlutterPlugin
+#
+# iOS:
+#   - pluginClass: the Swift/ObjC class implementing FlutterPlugin
+#                  (matched in ios/Classes/)
+# -----------------------------------------------------------------------------
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.communityar
+        pluginClass: CommunityARPlugin
+      ios:
+        pluginClass: CommunityARPlugin
+        # Swift package manager support (preferred over CocoaPods on iOS 15+).
+        # Comment this out if you need to support older CocoaPods-only setups.
+        sharedDarwinSource: true
+
+  # No assets in the plugin itself — MediaPipe models are downloaded via
+  # tools/fetch_models.sh and bundled by the platform-specific build steps
+  # (Android: copied to assets/ at build time; iOS: included as framework
+  # resources via the .podspec).

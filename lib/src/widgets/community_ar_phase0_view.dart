@@ -5,7 +5,7 @@
 // Drop into any Flutter app to verify the data highway works:
 //
 //   CommunityARPhase0View(
-//     camera: CameraLens.front,
+//     camera: Phase0CameraLens.front,
 //     testMode: CARTestMode.passthrough,
 //   )
 //
@@ -18,16 +18,19 @@
 import 'package:flutter/material.dart';
 import '../ffi/community_ar_phase0_ffi.dart';
 
-enum CameraLens { front, back }
+/// Phase 0's internal camera-selection enum. The public-facing
+/// `CameraLens` lives in `community_ar_view.dart`; the Phase 2 widget
+/// translates between them at the boundary.
+enum Phase0CameraLens { front, back }
 
 class CommunityARPhase0View extends StatefulWidget {
-  final CameraLens camera;
+  final Phase0CameraLens camera;
   final CARTestMode testMode;
   final BoxFit fit;
 
   const CommunityARPhase0View({
     super.key,
-    this.camera = CameraLens.front,
+    this.camera = Phase0CameraLens.front,
     this.testMode = CARTestMode.passthrough,
     this.fit = BoxFit.cover,
   });
@@ -52,7 +55,7 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
     try {
       await CommunityARPhase0FFI.createSession();
       await CommunityARPhase0FFI.startCamera(
-        lens: widget.camera == CameraLens.front ? 'front' : 'back',
+        lens: widget.camera == Phase0CameraLens.front ? 'front' : 'back',
       );
       await CommunityARPhase0FFI.setTestMode(widget.testMode);
 
@@ -87,7 +90,7 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
     }
     if (oldWidget.camera != widget.camera) {
       CommunityARPhase0FFI.switchCamera(
-        lens: widget.camera == CameraLens.front ? 'front' : 'back',
+        lens: widget.camera == Phase0CameraLens.front ? 'front' : 'back',
       );
     }
   }

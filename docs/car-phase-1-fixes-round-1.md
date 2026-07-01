@@ -1,4 +1,4 @@
-# Community AR — Phase 1 production fixes
+# Community AR Phase 1 — production fixes
 
 Three caveats from Phase 1 closed:
 
