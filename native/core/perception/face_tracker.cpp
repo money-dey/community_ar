@@ -15,6 +15,7 @@
 #include "face_tracker.h"
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 
 namespace community_ar {
@@ -148,6 +149,8 @@ struct FaceTracker::Impl {
     std::vector<Track> tracks;
     int nextTrackId = 0;
 };
+
+FaceTracker::FaceTracker() : FaceTracker(Config{}) {}
 
 FaceTracker::FaceTracker(const Config& cfg)
     : impl_(std::make_unique<Impl>()) {

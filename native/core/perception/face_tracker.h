@@ -25,6 +25,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace community_ar {
@@ -56,7 +57,13 @@ public:
         int maxTracks = 4;
     };
 
-    explicit FaceTracker(const Config& cfg = Config{});
+    // Two constructors instead of a single `const Config& = Config{}` default
+    // argument: a nested type's default member initializers (Config's
+    // matchIouThreshold etc.) cannot be consumed by an in-class default
+    // argument of the enclosing class. The default-constructed Config lives in
+    // the .cpp, where that restriction doesn't apply.
+    FaceTracker();
+    explicit FaceTracker(const Config& cfg);
     ~FaceTracker();
 
     // Process the current frame's detections and return per-detection
