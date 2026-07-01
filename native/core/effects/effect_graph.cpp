@@ -134,7 +134,7 @@ void EffectGraph::render(const TextureHandle& inputCamera,
                          Framebuffer* outputFbo) {
     // Empty graph: blit camera to output and bail
     if (effects_.empty()) {
-        ctx_->blitTextureToFramebuffer(inputCamera, outputFbo);
+        ctx_->blit(inputCamera, outputFbo);
         return;
     }
 

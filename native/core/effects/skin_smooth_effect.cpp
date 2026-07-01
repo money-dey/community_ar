@@ -332,7 +332,7 @@ void SkinSmoothEffect::render(const TextureHandle& inputTex,
         //
         // We blit texHalfRes_[2] (mid-band) → texHalfRes_[0] (low-band slot)
         // so P5's binding setup below works uniformly.
-        ctx->blitTextureToFramebuffer(*texHalfRes_[2], fboHalfRes_[0].get());
+        ctx->blit(*texHalfRes_[2], fboHalfRes_[0].get());
     }
 
     // ============== P4: upsample both bands ==============
@@ -402,7 +402,7 @@ void SkinSmoothEffect::render(const TextureHandle& inputTex,
     // so the blend is effectively identity on frame 1. From frame 2 onward
     // we have a real previous frame to blend against.
     if (framesSinceActivation_ <= 1) {
-        ctx->blitTextureToFramebuffer(*p6OutTex, fboPrevOutput_.get());
+        ctx->blit(*p6OutTex, fboPrevOutput_.get());
     }
 
     // Render P6.5 to a scratch buffer (the other of upsample[0/1] — the one
@@ -430,8 +430,8 @@ void SkinSmoothEffect::render(const TextureHandle& inputTex,
     // The history holds the POST-temporal result so temporal smoothing
     // is properly recursive — this frame's stabilization decays into
     // next frame's blend.
-    ctx->blitTextureToFramebuffer(*scratchTex, fboPrevOutput_.get());
-    ctx->blitTextureToFramebuffer(*scratchTex, outputFbo);
+    ctx->blit(*scratchTex, fboPrevOutput_.get());
+    ctx->blit(*scratchTex, outputFbo);
 
     // ---- Frame-time measurement: feed benchmark or adaptive throttle ----
     auto frameEnd = std::chrono::steady_clock::now();
@@ -606,7 +606,7 @@ void SkinSmoothEffect::adaptiveThrottle(float frameMs) {
 void SkinSmoothEffect::renderPassthrough(const TextureHandle& inputTex,
                                           Framebuffer* outputFbo,
                                           RenderContext* ctx) {
-    ctx->blitTextureToFramebuffer(inputTex, outputFbo);
+    ctx->blit(inputTex, outputFbo);
 }
 
 }  // namespace community_ar
