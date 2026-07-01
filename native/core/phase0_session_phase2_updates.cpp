@@ -20,6 +20,7 @@
 #include "phase0_session.h"
 #include "effects/effect_graph.h"
 #include "perception/perception_pipeline.h"
+#include "perception/segmenter_backend_factory.h"  // SegmenterBackendConfig
 #include <mutex>
 #include <queue>
 
@@ -55,7 +56,12 @@ PerceptionPipeline& Phase0Session::perceptionPipeline() {
         PerceptionConfig pcfg;
         pcfg.maxFaces = 4;
         p2_->perceptionPipeline = std::make_unique<PerceptionPipeline>(
-            pcfg, neuralBackend());
+            pcfg, neuralBackend(), renderContext());
+        // Choose the segmentation backend (default: multiclass with hair-only
+        // fallback). Without this the pipeline runs no segmenter and produces
+        // no mask channels.
+        p2_->perceptionPipeline->initSegmenterBackend(
+            neuralBackend(), SegmenterBackendConfig{});
     }
     return *p2_->perceptionPipeline;
 }

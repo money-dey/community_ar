@@ -15,12 +15,14 @@
 // =============================================================================
 
 #include "perception_pipeline.h"
+#include "perception_pipeline_impl.h"
 #include "face_landmarker.h"
 #include "iris_landmarker.h"
 #include "perception_models.h"
 #include "skin_tone.h"
 #include "../math/pnp_solver.h"
 #include "../render/render_context.h"
+#include <algorithm>
 #include <cstring>
 #include <unordered_set>
 #include <unordered_map>
@@ -34,6 +36,36 @@ extern "C" void tflite_backend_invalidate_frame(NeuralBackend* b);
 #if defined(__APPLE__)
 extern "C" void coreml_backend_invalidate_frame(NeuralBackend* b);
 #endif
+
+// -----------------------------------------------------------------------------
+// Construction / lifetime
+//
+// Builds the Phase 1 perception sub-models eagerly. The segmentation backend is
+// created later via initSegmenterBackend(), once the session knows which model
+// files exist on disk.
+// -----------------------------------------------------------------------------
+PerceptionPipeline::PerceptionPipeline(const PerceptionConfig& cfg,
+                                       NeuralBackend* backend,
+                                       RenderContext* ctx)
+    : impl_(std::make_unique<Impl>()) {
+    impl_->config  = cfg;
+    impl_->backend = backend;
+    impl_->ctx     = ctx;
+
+    impl_->faceLandmarker = std::make_unique<FaceLandmarker>(backend, cfg.maxFaces);
+    impl_->faceLandmarker->initialize();
+
+    impl_->irisLandmarker = std::make_unique<IrisLandmarker>(backend);
+    impl_->irisLandmarker->initialize();
+}
+
+PerceptionPipeline::~PerceptionPipeline() = default;
+
+void PerceptionPipeline::unloadIdleModels() {
+    // Placeholder: sub-models are currently retained for the session lifetime.
+    // A future memory-pressure policy would release idle models here (they are
+    // lazily reloaded on next use). No-op keeps the public contract stable.
+}
 
 const PerceptionFrame& PerceptionPipeline::run(
         const TextureHandle& cameraTexture,
@@ -121,11 +153,11 @@ const PerceptionFrame& PerceptionPipeline::run(
         }
     }
 
-    // Whole-image segmentations
-    if (impl_->requirements.needsHairMask && impl_->hairSegmenter) {
-        impl_->hairSegmenter->run(cameraTexture, F.imageWidth, F.imageHeight,
-                                  &F.hairMask);
-    }
+    // Whole-image segmentation via the Phase 3 segmenter backend. Populates
+    // F.segmentationMasks and the compatibility F.hairMask when an effect
+    // needs a mask channel this frame (gated inside runSegmenterForFrame by
+    // segmenterNeededThisFrame).
+    runSegmenterForFrame(cameraTexture, F, impl_->ctx);
 
     return F;
 }
