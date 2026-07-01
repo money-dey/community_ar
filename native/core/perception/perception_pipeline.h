@@ -25,6 +25,8 @@ namespace community_ar {
 class NeuralBackend;     // abstract; TFLite on Android, Core ML on iOS
 class OneEuroFilter;
 class TextureHandle;
+class RenderContext;
+struct SegmenterBackendConfig;   // segmenter_backend_factory.h
 
 // -----------------------------------------------------------------------------
 // PerceptionInputs — what an effect needs from the perception layer.
@@ -69,9 +71,19 @@ struct PerceptionConfig {
 
 class PerceptionPipeline {
 public:
-    explicit PerceptionPipeline(const PerceptionConfig& cfg,
-                                NeuralBackend* backend);
+    // The RenderContext is required for GPU-side perception work (skin tone
+    // compute, segmenter output textures). It is captured at construction and
+    // must outlive the pipeline.
+    PerceptionPipeline(const PerceptionConfig& cfg,
+                       NeuralBackend* backend,
+                       RenderContext* ctx);
     ~PerceptionPipeline();
+
+    // Choose and create the segmentation backend (multiclass with hair-only
+    // fallback). Called once, after construction, from the session setup path
+    // once model-file availability is known.
+    void initSegmenterBackend(NeuralBackend* neuralBackend,
+                              const SegmenterBackendConfig& cfg);
 
     // Declare what perception data is needed this frame.
     // Called once per frame, before run(), based on the active composition.
@@ -87,6 +99,12 @@ public:
     void unloadIdleModels();  // unload models not used for N frames
 
 private:
+    // Per-frame segmenter execution; populates outFrame.segmentationMasks
+    // (and the compatibility outFrame.hairMask). Called from run().
+    void runSegmenterForFrame(const TextureHandle& cameraTex,
+                              PerceptionFrame& outFrame,
+                              RenderContext* ctx);
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
