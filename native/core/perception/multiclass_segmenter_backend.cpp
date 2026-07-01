@@ -97,11 +97,8 @@ MulticlassSegmenterBackend::MulticlassSegmenterBackend(
     : neuralBackend_(neuralBackend),
       modelPath_(modelPath) {}
 
-MulticlassSegmenterBackend::~MulticlassSegmenterBackend() {
-    if (loaded_ && modelId_ >= 0) {
-        neuralBackend_->unloadModel(modelId_);
-    }
-}
+// model_ (a unique_ptr<NeuralModel>) releases the loaded model via RAII.
+MulticlassSegmenterBackend::~MulticlassSegmenterBackend() = default;
 
 void MulticlassSegmenterBackend::ensureChannelTextures(RenderContext* ctx) {
     if (channelBackground_) return;
@@ -117,6 +114,11 @@ void MulticlassSegmenterBackend::ensureChannelTextures(RenderContext* ctx) {
     channelFaceSkin_   = makeChannel();
     channelClothes_    = makeChannel();
     channelOthers_     = makeChannel();
+
+    // The model's raw output is bound into this texture, then splitChannels()
+    // fans it out to the six R8 channels above.
+    tensorTex_ = std::shared_ptr<TextureHandle>(
+        ctx->createTexture(256, 256, TextureHandle::Format::RGBA16F).release());
 
     // Shader and framebuffer set up once and reused.
     splitShader_ = ctx->createShader(kSplitVS, kSplitFS);
@@ -146,46 +148,41 @@ SegmentationChannels MulticlassSegmenterBackend::run(
     SegmentationChannels channels;
     channels.backendName = name();
 
-    // Lazy load on first invocation
-    if (!loaded_) {
-        NeuralBackend::ModelConfig cfg;
-        cfg.path = modelPath_;
-        cfg.inputWidth = 256;
-        cfg.inputHeight = 256;
-        cfg.inputChannels = 3;        // RGB
-        cfg.outputChannels = 6;       // 6-class softmax
-        cfg.preferGpuTexture = true;  // zero-copy ideal
-        modelId_ = neuralBackend_->loadModel(cfg);
-        if (modelId_ < 0) {
-            // Load failed — return empty channels, mark not fresh
+    // Lazy load on first invocation. loadModel() takes a model name/path and
+    // returns a NeuralModel handle (owned here); nullptr means load failed.
+    if (!model_) {
+        model_ = neuralBackend_->loadModel(modelPath_);
+        if (!model_) {
             channels.fresh = false;
             return channels;
         }
-        loaded_ = true;
     }
 
     ensureChannelTextures(ctx);
 
+    // Bind the camera frame as the model input. The backend handles rotation,
+    // resize, and zero-copy-vs-blit internally (see Phase 1 diagnostics).
+    CameraInputRect rect;
+    rect.width  = cameraTex.width();
+    rect.height = cameraTex.height();
+    model_->setInputTexture(0, cameraTex, rect);
+
     auto t0 = std::chrono::steady_clock::now();
-
-    // Run inference. The neural backend handles texture binding (zero-copy
-    // where the hardware supports it, blit where it doesn't — see Phase 1's
-    // diagnostic reporting).
-    NeuralBackend::InferenceRequest req;
-    req.modelId = modelId_;
-    req.inputTexture = &cameraTex;
-    auto result = neuralBackend_->runInference(req);
-
+    bool ran = model_->run();
     auto t1 = std::chrono::steady_clock::now();
     lastInferenceMs_ = std::chrono::duration<float, std::milli>(t1 - t0).count();
 
-    if (!result.success || !result.outputTexture) {
+    if (!ran) {
         channels.fresh = false;
         return channels;
     }
 
-    // Split the 6-channel tensor into 6 R8 textures.
-    splitChannels(*result.outputTexture, ctx);
+    // Bind the model's image output into our tensor texture, then split.
+    if (!model_->bindOutputTexture(0, tensorTex_.get())) {
+        channels.fresh = false;
+        return channels;
+    }
+    splitChannels(*tensorTex_, ctx);
 
     // Populate output struct with shared references to our long-lived
     // channel textures. Downstream readers must not retain past the next

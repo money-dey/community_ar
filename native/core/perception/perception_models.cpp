@@ -17,6 +17,8 @@
 #include <cmath>
 #include <algorithm>
 
+namespace community_ar {
+
 // =============================================================================
 // HairSegmenter / SelfieSegmenter
 // =============================================================================
@@ -49,7 +51,12 @@ public:
              int imageWidth, int imageHeight,
              const TextureHandle** outMask) {
         if (!model_) return false;
-        model_->setInputTexture(0, cameraTex, 0, 0, imageWidth, imageHeight);
+        CameraInputRect rect;
+        rect.x = 0;
+        rect.y = 0;
+        rect.width = imageWidth;
+        rect.height = imageHeight;
+        model_->setInputTexture(0, cameraTex, rect);
         if (!model_->run()) return false;
         model_->readOutput(0, outputBuf_.data(),
                            outputBuf_.size() * sizeof(float));
