@@ -42,7 +42,6 @@ public:
     bool initialize() {
         model_ = backend_->loadModel(modelName_);
         if (!model_) return false;
-        outputBuf_.resize(maskW_ * maskH_);
         maskTex_ = ctx_->createTexture(maskW_, maskH_, TextureHandle::Format::R8);
         return true;
     }
@@ -58,12 +57,13 @@ public:
         rect.height = imageHeight;
         model_->setInputTexture(0, cameraTex, rect);
         if (!model_->run()) return false;
-        model_->readOutput(0, outputBuf_.data(),
-                           outputBuf_.size() * sizeof(float));
-        // Upload to mask texture. In practice we'd convert float→uint8 in
-        // a tiny compute shader to avoid the CPU→GPU bandwidth, but for
-        // Phase 1 scaffold we keep it simple.
-        // ctx_->uploadTextureR8(maskTex_.get(), outputBuf_, /*from float*/);
+        // Bind the output mask tensor directly to our GPU texture (zero-copy),
+        // keeping the mask GPU-resident. The Phase 1 scaffold instead read the
+        // output back to a CPU buffer and left the re-upload commented out, so
+        // maskTex_ was never actually populated. Binding matches the pattern
+        // the multiclass segmenter uses and the "pixels never leave the GPU"
+        // invariant.
+        if (!model_->bindOutputTexture(0, maskTex_.get())) return false;
         *outMask = maskTex_.get();
         return true;
     }
@@ -75,7 +75,6 @@ private:
     int maskW_, maskH_;
     std::unique_ptr<NeuralModel> model_;
     std::unique_ptr<TextureHandle> maskTex_;
-    std::vector<float> outputBuf_;
 };
 
 }  // anonymous namespace
