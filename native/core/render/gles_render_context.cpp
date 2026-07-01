@@ -95,6 +95,13 @@ public:
                                       TextureHandle::Ownership::Owned);
     }
 
+    // Adopt an already-created framebuffer object — e.g. an MRT framebuffer
+    // whose color attachments are owned externally (see createMRTFramebuffer).
+    // Takes ownership of `existingFbo` (deleted in the destructor); no single
+    // color texture is tracked (colorTexture() returns an invalid handle).
+    GlesFramebuffer(GLuint existingFbo, int w, int h)
+        : w_(w), h_(h), fbo_(existingFbo) {}
+
     ~GlesFramebuffer() override {
         if (fbo_) glDeleteFramebuffers(1, &fbo_);
     }
@@ -286,6 +293,101 @@ public:
 
     const char* backendName() const override { return "OpenGL ES 3.0"; }
     int maxTextureSize() const override { return maxTextureSize_; }
+
+    // -------------------------------------------------------------------------
+    // Extended API (merged from gles_render_context_phase3_updates.cpp).
+    // These were defined out-of-line in a separate TU that couldn't see this
+    // class; consolidated here so they compile.
+    // -------------------------------------------------------------------------
+
+    // Draw an arbitrary triangle list. Vertex layout matches the mask
+    // rasterizer's: position (loc 0, 2 floats) + alpha (loc 1, 1 float),
+    // interleaved.
+    void drawTriangles(ShaderProgram* shader, VertexBuffer* vbo,
+                       int firstVertex, int vertexCount) override {
+        if (!shader || !vbo || vertexCount <= 0) return;
+
+        glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(vbo->nativeHandle()));
+
+        constexpr GLsizei kStride = sizeof(float) * 3;
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, kStride, (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, kStride,
+                              (void*)(sizeof(float) * 2));
+
+        glDrawArrays(GL_TRIANGLES, firstVertex, vertexCount);
+
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+    }
+
+    // Create a framebuffer with N color attachments (MRT). Used by the
+    // multiclass segmenter to split one tensor into 6 R8 textures in one pass.
+    // The attached textures are owned by the caller; the returned framebuffer
+    // owns only the FBO object.
+    std::unique_ptr<Framebuffer> createMRTFramebuffer(
+            const std::vector<const TextureHandle*>& colorAttachments) override {
+        if (colorAttachments.empty()) {
+            LOGE("createMRTFramebuffer: empty attachments list");
+            return nullptr;
+        }
+
+        static GLint sMaxAttachments = 0;
+        if (sMaxAttachments == 0) {
+            glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &sMaxAttachments);
+        }
+        if ((GLint)colorAttachments.size() > sMaxAttachments) {
+            LOGE("createMRTFramebuffer: %zu attachments requested, max is %d",
+                 colorAttachments.size(), sMaxAttachments);
+            return nullptr;
+        }
+
+        // All attachments must be the same size.
+        int width = 0, height = 0;
+        for (size_t i = 0; i < colorAttachments.size(); ++i) {
+            const TextureHandle* tex = colorAttachments[i];
+            if (!tex) {
+                LOGE("createMRTFramebuffer: null attachment at index %zu", i);
+                return nullptr;
+            }
+            if (i == 0) {
+                width = tex->width();
+                height = tex->height();
+            } else if (tex->width() != width || tex->height() != height) {
+                LOGE("createMRTFramebuffer: attachment %zu size mismatch", i);
+                return nullptr;
+            }
+        }
+
+        GLuint fbo = 0;
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+        std::vector<GLenum> drawBuffers(colorAttachments.size());
+        for (size_t i = 0; i < colorAttachments.size(); ++i) {
+            GLuint texName =
+                static_cast<GLuint>(colorAttachments[i]->nativeHandle());
+            glFramebufferTexture2D(GL_FRAMEBUFFER,
+                                   GL_COLOR_ATTACHMENT0 + (GLenum)i,
+                                   GL_TEXTURE_2D, texName, 0);
+            drawBuffers[i] = GL_COLOR_ATTACHMENT0 + (GLenum)i;
+        }
+
+        glDrawBuffers((GLsizei)drawBuffers.size(), drawBuffers.data());
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            LOGE("createMRTFramebuffer: incomplete (0x%x); mixed formats?",
+                 status);
+            glDeleteFramebuffers(1, &fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return nullptr;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return std::make_unique<GlesFramebuffer>(fbo, width, height);
+    }
 
 private:
     EGLContext eglContext_;

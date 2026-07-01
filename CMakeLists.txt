@@ -65,9 +65,6 @@ set(CAR_SOURCES
     native/core/effects/mask_resource_pool.cpp
     native/core/effects/skin_smooth_effect.cpp
     native/core/ffi/community_ar_phase3_api.cpp
-
-    # Phase 3 — render context additions
-    native/core/render/gles_render_context_phase3_updates.cpp
 )
 
 # -----------------------------------------------------------------------------
