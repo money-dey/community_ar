@@ -61,11 +61,13 @@ android {
 
     // Point the native build at the repo-root CMakeLists.txt.
     //
-    // NOTE: a device build additionally requires the TensorFlow Lite (+ GPU
-    // delegate) and MediaPipe model dependencies to be vendored / fetched —
-    // see the commented externalNativeBuild section in ../CMakeLists.txt and
-    // tools/fetch_models.sh. Without them the native link step will fail; the
-    // Gradle/Flutter structure itself is complete.
+    // NOTE: a device build additionally requires two vendored/fetched inputs:
+    //   - TensorFlow Lite (C API + GPU delegate) — `bash tools/fetch_tflite.sh`
+    //     (CMakeLists.txt consumes it from third_party/tensorflow-lite/)
+    //   - MediaPipe model files — `bash tools/fetch_models.sh`
+    // Without the TFLite libs the native link step fails (CMake emits a clear
+    // error pointing at fetch_tflite.sh); the Gradle/Flutter structure itself
+    // is complete.
     externalNativeBuild {
         cmake {
             path = file("../CMakeLists.txt")

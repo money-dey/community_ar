@@ -31,3 +31,8 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# Vendored TensorFlow Lite artifacts (populated by tools/fetch_tflite.sh).
+# Large / machine-built — not committed; only the README is tracked.
+/third_party/tensorflow-lite/include/
+/third_party/tensorflow-lite/lib/
