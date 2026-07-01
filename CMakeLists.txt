@@ -130,16 +130,50 @@ target_link_libraries(community_ar_native PRIVATE ${CAR_PLATFORM_LIBS})
 # -----------------------------------------------------------------------------
 # External: TensorFlow Lite (Android only)
 # -----------------------------------------------------------------------------
-# Expected layout: third_party/tensorflow-lite/{include,lib}
-# In production this is fetched via Gradle's externalNativeBuild + Maven, but
-# during local development the headers can be vendored.
+# native/core/ml/tflite_backend.cpp links the TFLite C API + GPU delegate (with
+# GL-interop). Artifacts are vendored under third_party/tensorflow-lite/ in the
+# layout below; populate them with `bash tools/fetch_tflite.sh`. Override the
+# location with -DCAR_TFLITE_DIR=/path/to/tflite.
 #
-# if(ANDROID)
-#     find_package(tensorflowlite REQUIRED)
-#     target_link_libraries(community_ar_native PRIVATE
-#         tensorflowlite::tensorflowlite
-#         tensorflowlite::gpu_delegate)
-# endif()
+#   third_party/tensorflow-lite/
+#   ├── include/                 (C API + gpu/gl headers)
+#   └── lib/<ABI>/               (libtensorflowlite_c.so, libtensorflowlite_gpu_delegate.so)
+#
+# See third_party/tensorflow-lite/README.md — in particular the GL-interop
+# caveat (the gpu/gl headers + TfLiteGpuDelegateBindGl* symbols require a
+# from-source delegate build, not the standard prebuilt AAR).
+if(ANDROID)
+    set(CAR_TFLITE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/tensorflow-lite"
+        CACHE PATH "Vendored TensorFlow Lite root (include/ + lib/<ABI>/)")
+
+    set(_car_tflite_inc "${CAR_TFLITE_DIR}/include")
+    set(_car_tflite_libdir "${CAR_TFLITE_DIR}/lib/${ANDROID_ABI}")
+
+    if(NOT IS_DIRECTORY "${_car_tflite_inc}" OR NOT IS_DIRECTORY "${_car_tflite_libdir}")
+        message(FATAL_ERROR
+            "TensorFlow Lite not vendored for ABI '${ANDROID_ABI}'.\n"
+            "  headers: ${_car_tflite_inc}\n"
+            "  libs:    ${_car_tflite_libdir}\n"
+            "Run `bash tools/fetch_tflite.sh` (or pass -DCAR_TFLITE_DIR=...).\n"
+            "See third_party/tensorflow-lite/README.md.")
+    endif()
+
+    find_library(CAR_TFLITE_C_LIB   tensorflowlite_c
+                 PATHS "${_car_tflite_libdir}" NO_DEFAULT_PATH)
+    find_library(CAR_TFLITE_GPU_LIB tensorflowlite_gpu_delegate
+                 PATHS "${_car_tflite_libdir}" NO_DEFAULT_PATH)
+
+    if(NOT CAR_TFLITE_C_LIB OR NOT CAR_TFLITE_GPU_LIB)
+        message(FATAL_ERROR
+            "Missing TFLite .so in ${_car_tflite_libdir} "
+            "(need libtensorflowlite_c.so + libtensorflowlite_gpu_delegate.so). "
+            "Build them per third_party/tensorflow-lite/README.md.")
+    endif()
+
+    target_include_directories(community_ar_native PRIVATE "${_car_tflite_inc}")
+    target_link_libraries(community_ar_native PRIVATE
+        "${CAR_TFLITE_C_LIB}" "${CAR_TFLITE_GPU_LIB}")
+endif()
 
 # -----------------------------------------------------------------------------
 # Compile flags
