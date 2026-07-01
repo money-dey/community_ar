@@ -36,6 +36,7 @@
 namespace community_ar {
 
 class NeuralBackend;
+class NeuralModel;
 class ShaderProgram;
 
 class MulticlassSegmenterBackend : public SegmenterBackend {
@@ -68,10 +69,13 @@ private:
 
     NeuralBackend* neuralBackend_;
     std::string    modelPath_;
-    int            modelId_ = -1;       // assigned at first run()
-    bool           loaded_ = false;
+    std::unique_ptr<NeuralModel> model_;   // loaded lazily at first run()
 
     float          lastInferenceMs_ = 0.0f;
+
+    // The model's raw output bound as a GPU texture, split into per-class
+    // channels by splitChannels(). Allocated once alongside the channels.
+    std::shared_ptr<TextureHandle> tensorTex_;
 
     // The 6 output channels, allocated once and reused across frames.
     // Each is a 256x256 R8 texture.

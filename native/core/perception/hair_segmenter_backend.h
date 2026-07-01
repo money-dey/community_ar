@@ -49,6 +49,11 @@ public:
                              RenderContext* ctx) override;
 
 private:
+    // HairSegmenter needs a RenderContext, which isn't available until the
+    // first run() call — so it's constructed lazily there rather than in the
+    // constructor. neuralBackend_ / modelPath_ are captured for that.
+    NeuralBackend* neuralBackend_ = nullptr;
+    std::string    modelPath_;
     std::unique_ptr<HairSegmenter> impl_;
     float lastInferenceMs_ = 0.0f;
 };
