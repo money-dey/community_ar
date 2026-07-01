@@ -1,7 +1,11 @@
 # Community AR — example app
 
-A runnable demo showing the library in action: front camera, beauty
-preset picker, lipstick palette, live quality-tier indicator.
+A runnable, comprehensive showcase and device-test harness. It exercises
+**every capability the public Dart API currently exposes** from one screen —
+camera switching, the full beauty pipeline (presets, quality tiers, and live
+sliders for all config knobs), lipstick (color + all parameters), debug
+overlays, One-Euro filter tuning, and a live perception-stats HUD — so you can
+validate each feature on a real device as you go.
 
 This `example/` directory has a dual purpose:
 
@@ -22,11 +26,25 @@ front-camera path is the most thoroughly demoed.
 
 ## What you'll see
 
-- A live camera preview with beauty + lipstick composited
-- Top bar toggles for enabling/disabling each effect
-- Top-bar badge showing the auto-resolved beauty quality tier
-- Bottom panel: nine beauty presets + an eight-color lipstick palette
-  with opacity slider
+- A live camera preview with beauty + lipstick composited, and a
+  front/back camera switch
+- **Top bar** — enable/disable Beauty and Lips, the auto-resolved beauty
+  quality-tier badge, and a stats-HUD toggle
+- **Stats HUD** — live perception diagnostics: faces detected, per-model
+  inference times (FaceMesh / iris / hair-seg / PnP), active filter count,
+  skin baseline luma, and the active mask-pool names
+- **Bottom panel, three tabs:**
+  - *Beauty* — all nine presets, an explicit quality-tier picker
+    (Auto / High / Medium / Low), and live sliders for every
+    `BeautyFilterConfig` knob (smoothing, detail preserve, blemish
+    reduction, bilateral edge sensitivity, high/mid-freq strength,
+    specular matte↔glow, warmth, highlight lift, clarity, temporal
+    smoothing, local adaptiveness)
+  - *Lips* — an eight-color palette plus opacity, edge-softness, and
+    luminance-preserve sliders
+  - *Debug* — toggle each debug overlay (landmarks, mesh, iris, hair
+    mask, pose, skin tone), tune the One-Euro landmark filter
+    (`minCutoff` / `beta`), and see the active mask pool
 
 The presets that demonstrate Community AR's cross-skin-tone correctness
 most clearly are `glamour` (heavy smoothing) and `editorial` (heavy
