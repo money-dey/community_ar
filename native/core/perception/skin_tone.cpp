@@ -124,6 +124,10 @@ struct SkinToneEstimator::Impl {
     // The most recent finalized estimate
     mutable std::mutex resultMutex;
     SkinToneEstimate current{};
+
+    // Poll outstanding async readbacks and finalize any that are ready.
+    // A member (not a free function) so it can touch this private Impl.
+    void pollPending();
 };
 
 // -----------------------------------------------------------------------------
@@ -215,18 +219,18 @@ static SkinToneEstimate computeTrimmedMean(const float* rgbaSamples, int count) 
 // Poll outstanding readbacks. Called internally before issuing a new request
 // and from getCurrent() so estimates update without explicit driving.
 // -----------------------------------------------------------------------------
-static void pollPending(SkinToneEstimator::Impl& s) {
-    for (auto it = s.pending.begin(); it != s.pending.end(); ) {
+void SkinToneEstimator::Impl::pollPending() {
+    for (auto it = pending.begin(); it != pending.end(); ) {
         if (it->handle && it->handle->isReady()) {
             auto est = computeTrimmedMean(
                 reinterpret_cast<const float*>(it->handle->data()),
                 kNumSamples);
             {
-                std::lock_guard<std::mutex> lock(s.resultMutex);
-                s.current = est;
+                std::lock_guard<std::mutex> lock(resultMutex);
+                current = est;
             }
             it->handle->release();
-            it = s.pending.erase(it);
+            it = pending.erase(it);
         } else {
             ++it;
         }
@@ -244,7 +248,7 @@ void SkinToneEstimator::requestUpdate(const TextureHandle& cameraTex,
 
     // Throttle
     if (frameId - s.lastUpdateFrame < s.kUpdateInterval) {
-        pollPending(s);
+        s.pollPending();
         return;
     }
     s.lastUpdateFrame = frameId;
@@ -292,14 +296,14 @@ void SkinToneEstimator::requestUpdate(const TextureHandle& cameraTex,
     if (pr.handle) s.pending.push_back(std::move(pr));
 
     // While we're here, also poll any already-completed readbacks
-    pollPending(s);
+    s.pollPending();
 }
 
 // -----------------------------------------------------------------------------
 // getCurrent — returns latest finalized estimate
 // -----------------------------------------------------------------------------
 SkinToneEstimate SkinToneEstimator::getCurrent() const {
-    pollPending(const_cast<Impl&>(*impl_));
+    const_cast<Impl&>(*impl_).pollPending();
     std::lock_guard<std::mutex> lock(impl_->resultMutex);
     return impl_->current;
 }
