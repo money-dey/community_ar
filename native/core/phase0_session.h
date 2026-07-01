@@ -14,8 +14,13 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <functional>
 
 namespace community_ar {
+
+class EffectGraph;
+class PerceptionPipeline;
+class NeuralBackend;
 
 class Phase0Session {
 public:
@@ -36,6 +41,26 @@ public:
     CARStatus setTestMode(CARTestMode mode);
 
     void getStats(CARPhase0Stats* outStats) const;
+
+    // ---- Phase 2 integration ----
+    // Accessors and the render path used by the Phase 2/3 C ABI. All lazily
+    // create their backing objects on first use (see
+    // phase0_session_phase2_updates.cpp).
+    RenderContext*       renderContext();
+    NeuralBackend*       neuralBackend();
+    EffectGraph&         effectGraph();
+    PerceptionPipeline&  perceptionPipeline();
+    const TextureHandle& cameraOutputTexture();
+    Framebuffer*         displayFramebuffer();
+
+    // Queue a task to run on the render thread before the next frame. Used by
+    // the ABI to make graph mutations thread-safe without exposing locks.
+    void runOnRenderThread(std::function<void()> task);
+    void drainRenderQueue();
+
+    // Per-frame render path with perception + effect graph (replaces the
+    // Phase 0 test-shader path when an effect graph is installed).
+    void renderFramePhase2(int64_t captureTimestampNs);
 
 private:
     void processFrame(uint64_t cameraTexHandle, int w, int h,
@@ -65,6 +90,13 @@ private:
     // Concurrency: submitFrame can be called from camera thread while
     // getOutputTexture is called from Flutter's render thread.
     mutable std::mutex outputMutex_;
+
+    // Phase 2 additions (effect graph, perception pipeline, neural backend,
+    // render-thread queue). Defined in phase0_session_phase2.h; allocated in
+    // the constructor. Kept behind a pointer so the Phase 0 header stays free
+    // of the Phase 2/3 includes.
+    struct Phase2Members;
+    std::unique_ptr<Phase2Members> p2_;
 };
 
 }  // namespace community_ar

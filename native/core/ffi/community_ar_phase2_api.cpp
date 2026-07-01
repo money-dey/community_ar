@@ -85,8 +85,15 @@ CAR_EXPORT CARStatus car_p2_graph_set(
 
     // Hand off to the render thread. The session swaps in the new graph
     // before the next frame's render.
-    s->runOnRenderThread([s, eff = std::move(built)]() mutable {
-        s->effectGraph().setEffects(std::move(eff));
+    //
+    // The effect list is move-only (vector<unique_ptr<Effect>>), but
+    // runOnRenderThread takes a std::function, which must be copyable. Wrap the
+    // list in a shared_ptr so the lambda's captures stay copyable; the task
+    // moves the vector out of it when it runs.
+    auto eff = std::make_shared<std::vector<std::unique_ptr<Effect>>>(
+        std::move(built));
+    s->runOnRenderThread([s, eff]() {
+        s->effectGraph().setEffects(std::move(*eff));
         // After replacing the graph, recompute perception requirements
         s->perceptionPipeline().setRequirements(
             s->effectGraph().perceptionInputs());

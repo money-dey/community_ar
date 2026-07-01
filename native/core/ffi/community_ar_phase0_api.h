@@ -31,9 +31,11 @@ typedef enum {
 } CARBackend;
 
 typedef enum {
-    CAR_STATUS_OK              = 0,
-    CAR_STATUS_INVALID_HANDLE  = 1,
-    CAR_STATUS_INTERNAL_ERROR  = 6
+    CAR_STATUS_OK               = 0,
+    CAR_STATUS_INVALID_HANDLE   = 1,
+    CAR_STATUS_INVALID_SESSION  = 2,   /* session pointer null or not started */
+    CAR_STATUS_INVALID_ARGUMENT = 3,   /* a call argument was out of range/null */
+    CAR_STATUS_INTERNAL_ERROR   = 6
 } CARStatus;
 
 typedef enum {
