@@ -24,6 +24,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#include <vector>
 
 namespace community_ar {
 
