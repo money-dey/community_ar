@@ -16,10 +16,6 @@ dependencies:
   community_ar:
     path: ../
 
-  # Runtime camera-permission request (Android 6+ / iOS). The plugin declares
-  # the CAMERA permission in its manifest; this asks the user to grant it.
-  permission_handler: ^11.3.1
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

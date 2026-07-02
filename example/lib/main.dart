@@ -23,8 +23,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:community_ar/community_ar.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 void main() => runApp(const ShowcaseApp());
 
@@ -51,7 +51,10 @@ class _CameraGate extends StatefulWidget {
 }
 
 class _CameraGateState extends State<_CameraGate> {
-  PermissionStatus? _status;
+  // The plugin requests the runtime permission natively (no extra Dart
+  // dependency). Same channel the FFI uses.
+  static const _methods = MethodChannel('dev.communityar/methods');
+  bool? _granted;
 
   @override
   void initState() {
@@ -60,17 +63,23 @@ class _CameraGateState extends State<_CameraGate> {
   }
 
   Future<void> _request() async {
-    final status = await Permission.camera.request();
-    if (mounted) setState(() => _status = status);
+    bool granted = false;
+    try {
+      granted = await _methods.invokeMethod<bool>('requestCameraPermission') ??
+          false;
+    } catch (_) {
+      granted = false;
+    }
+    if (mounted) setState(() => _granted = granted);
   }
 
   @override
   Widget build(BuildContext context) {
-    final status = _status;
-    if (status == null) {
+    final granted = _granted;
+    if (granted == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (status.isGranted) {
+    if (granted) {
       return const ShowcaseHome();
     }
     return Scaffold(
@@ -86,10 +95,8 @@ class _CameraGateState extends State<_CameraGate> {
                   textAlign: TextAlign.center),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: status.isPermanentlyDenied ? openAppSettings : _request,
-                child: Text(status.isPermanentlyDenied
-                    ? 'Open settings'
-                    : 'Grant camera access'),
+                onPressed: _request,
+                child: const Text('Grant camera access'),
               ),
             ],
           ),

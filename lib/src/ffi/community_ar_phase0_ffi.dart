@@ -42,6 +42,14 @@ class CommunityARPhase0FFI {
 
   static const _channel = MethodChannel('dev.communityar/methods');
 
+  /// Requests the runtime CAMERA permission (Android 6+). Returns true if
+  /// granted. Handled natively by the plugin (no extra Dart dependency).
+  static Future<bool> requestCameraPermission() async {
+    final granted =
+        await _channel.invokeMethod<bool>('requestCameraPermission');
+    return granted ?? false;
+  }
+
   static Future<int> createSession() async {
     final id = await _channel.invokeMethod<int>('createSession');
     return id ?? -1;
