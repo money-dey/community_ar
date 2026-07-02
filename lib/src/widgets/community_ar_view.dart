@@ -63,7 +63,11 @@ class _CommunityARViewState extends State<CommunityARView> {
     if (_lastApplied == g) return;
     _lastApplied = g;
     // Fire-and-forget; the native side queues the swap onto the render thread.
-    CommunityARPhase2FFI.setEffectGraph(g);
+    //
+    // Degrade gracefully if the platform hasn't wired the effect-graph channel
+    // yet (e.g. a Phase 0-only build): a MissingPluginException here would
+    // otherwise surface as an unhandled async exception on every rebuild.
+    CommunityARPhase2FFI.setEffectGraph(g).catchError((Object _) {});
   }
 
   @override
