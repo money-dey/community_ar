@@ -23,6 +23,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:community_ar/community_ar.dart';
 
 void main() => runApp(const ShowcaseApp());
@@ -35,8 +36,74 @@ class ShowcaseApp extends StatelessWidget {
         title: 'Community AR — Showcase',
         theme: ThemeData.dark(useMaterial3: true),
         debugShowCheckedModeBanner: false,
-        home: const ShowcaseHome(),
+        home: const _CameraGate(),
       );
+}
+
+/// Requests camera permission before showing the AR view. The native pipeline
+/// can't open the camera without it (the widget would otherwise fail with
+/// "Native pipeline did not produce output texture").
+class _CameraGate extends StatefulWidget {
+  const _CameraGate();
+
+  @override
+  State<_CameraGate> createState() => _CameraGateState();
+}
+
+class _CameraGateState extends State<_CameraGate> {
+  // The plugin requests the runtime permission natively (no extra Dart
+  // dependency). Same channel the FFI uses.
+  static const _methods = MethodChannel('dev.communityar/methods');
+  bool? _granted;
+
+  @override
+  void initState() {
+    super.initState();
+    _request();
+  }
+
+  Future<void> _request() async {
+    bool granted = false;
+    try {
+      granted = await _methods.invokeMethod<bool>('requestCameraPermission') ??
+          false;
+    } catch (_) {
+      granted = false;
+    }
+    if (mounted) setState(() => _granted = granted);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final granted = _granted;
+    if (granted == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (granted) {
+      return const ShowcaseHome();
+    }
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.no_photography, size: 48, color: Colors.white54),
+              const SizedBox(height: 12),
+              const Text('Camera permission is required to preview the AR view.',
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _request,
+                child: const Text('Grant camera access'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class ShowcaseHome extends StatefulWidget {

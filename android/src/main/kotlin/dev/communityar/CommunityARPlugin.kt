@@ -17,22 +17,32 @@
 
 package dev.communityar
 
+import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.opengl.*
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.PluginRegistry
 import io.flutter.view.TextureRegistry
 
-class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
+    ActivityAware, PluginRegistry.RequestPermissionsResultListener {
     companion object {
         private const val TAG = "CommunityARPlugin"
         const val CHANNEL = "dev.communityar/methods"
+        private const val CAMERA_PERMISSION_REQUEST = 0xCA
 
         init { System.loadLibrary("community_ar_native") }
     }
@@ -43,6 +53,10 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private var surfaceEntry: TextureRegistry.SurfaceTextureEntry? = null
     private var cameraStream: CameraStream? = null
+
+    // Activity + a pending permission result (one request in flight at a time).
+    private var activity: Activity? = null
+    private var pendingPermissionResult: MethodChannel.Result? = null
 
     // Native handle (Phase0Session*) returned by JNI
     private var nativeSessionPtr: Long = 0
@@ -62,6 +76,7 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
+                "requestCameraPermission" -> requestCameraPermission(result)
                 "createSession"    -> result.success(createSession())
                 "startCamera"      -> { startCamera(call.argument("lens") ?: "front"); result.success(null) }
                 "switchCamera"     -> { switchCamera(call.argument("lens") ?: "front"); result.success(null) }
@@ -148,6 +163,61 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
         surfaceEntry?.release()
         surfaceEntry = null
+    }
+
+    // -------------------------------------------------------------------------
+    // Runtime camera permission (Android 6+)
+    // -------------------------------------------------------------------------
+    private fun requestCameraPermission(result: MethodChannel.Result) {
+        if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED) {
+            result.success(true)
+            return
+        }
+        val act = activity
+        if (act == null) {
+            Log.e(TAG, "requestCameraPermission: no attached activity")
+            result.success(false)
+            return
+        }
+        // One request in flight at a time; resolve any prior pending one as false.
+        pendingPermissionResult?.success(false)
+        pendingPermissionResult = result
+        ActivityCompat.requestPermissions(
+            act, arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ): Boolean {
+        if (requestCode != CAMERA_PERMISSION_REQUEST) return false
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        pendingPermissionResult?.success(granted)
+        pendingPermissionResult = null
+        return true
+    }
+
+    // -------------------------------------------------------------------------
+    // ActivityAware — needed to hold an Activity for requestPermissions()
+    // -------------------------------------------------------------------------
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+        binding.addRequestPermissionsResultListener(this)
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        onAttachedToActivity(binding)
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+    }
+
+    override fun onDetachedFromActivity() {
+        activity = null
     }
 
     // -------------------------------------------------------------------------
