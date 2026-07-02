@@ -6,6 +6,9 @@
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS-lightgrey.svg)]()
 [![Flutter](https://img.shields.io/badge/Flutter-3.0%2B-027DFD.svg)](https://flutter.dev)
 
+> **Picking up the project? Start with [`docs/START_HERE.md`](docs/START_HERE.md)** —
+> current build/bring-up state, what to work on next, and how to resume.
+
 ---
 
 Add real-time face effects to any Flutter app in three lines of Dart. The library handles camera plumbing, face perception, face warping, GPU rendering, and effect composition — exposing a declarative API that fits naturally into Flutter's widget tree.
