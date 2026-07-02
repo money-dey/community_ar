@@ -1,0 +1,228 @@
+# Detailed Changelog — Decisions & Rationale
+
+A dated record of the **design/implementation decisions** behind each change:
+the options considered, why one was chosen and others rejected, and the related
+commit + PR. This is the "why," complementing `CONSOLIDATION_AND_BRINGUP.md`
+(the "what") and `START_HERE.md` (the entry point).
+
+**Newest first. Append an entry for every non-trivial decision going forward.**
+
+Entry format: `PR #N — title (date, commit) · Change · Options · Decision & why`.
+
+---
+
+## Cross-cutting decisions (apply throughout)
+
+- **Consolidate the "delta document" pattern, don't extend it.** The repo shipped
+  Phase-N changes as separate `*_phase*_updates.*` files that *described* edits to
+  canonical headers/classes but were never merged — so compiled code referenced
+  interfaces that existed only in comments. **Decision:** merge each load-bearing
+  delta into its canonical file and delete it, rather than keep the pattern.
+  *(Alternative rejected: keep writing deltas — it's what caused the non-compiling
+  state.)*
+- **Verify by layer; never conflate "compiles" with "works."** No device / TFLite
+  / iOS in the dev env. **Decision:** verify native C++ with the Android NDK clang
+  (`-fsyntax-only`), Dart with `dart analyze`, and the whole Android build with
+  `flutter build apk --debug`; state the "not runtime-verified" boundary on every
+  change. *(This caught an early over-claim — "Phase 0 is fully wired" — which was
+  corrected once the pixel handoff was actually traced.)*
+- **One focused fix per branch/PR**, conventional-commit title, DCO `-s`,
+  `Co-Authored-By: Claude Opus 4.8`; the maintainer reviews/merges each; sync
+  `master` before the next.
+
+---
+
+## 2026-07-03
+
+### PR #20 — START_HERE + session-handoff (docs, `b212e05`)
+- **Change:** `docs/START_HERE.md` single entry point + README link; plus
+  project memory files for auto-recall in new sessions.
+- **Options:** (a) memory files only; (b) repo doc only; (c) both + entry point.
+- **Decision & why:** **(c).** Memory files auto-load in a new Claude Code session
+  but are concise hooks; a repo doc is durable and detailed; START_HERE ties them
+  together so README → START_HERE → the right doc → the next task.
+
+### PR #19 — Android render pipeline: document, don't implement (docs, `7582009`)
+- **Change:** `docs/ANDROID_RENDER_PIPELINE.md` — design + on-device bring-up guide
+  for the black-preview blocker.
+- **Options (put to the user):** implement it with **Kotlin owning EGL**;
+  implement with **native (C++) owning EGL**; **reconsider scope / document first.**
+- **Decision & why:** user chose **document first.** Investigation showed the whole
+  Android GL/EGL pipeline is unbuilt (no EGL context, no window-surface
+  presentation, cross-context OES handle, `sampler2D` for an external-OES texture)
+  — a large, 100%-unverifiable-here change. A precise design + checklist a
+  contributor can drive on-device beats ~400 lines of unrunnable EGL. The doc
+  still **recommends Kotlin-owns-EGL** (standard pattern, debuggable, minimal
+  native change) for whoever implements it.
+
+### PR #18 — Effect-graph channel graceful degradation (`da98150`)
+- **Change:** `CommunityARView` swallows `MissingPluginException` from
+  `setEffectGraph` so it degrades to passthrough instead of crash-spamming.
+- **Options:** (a) swallow the exception (stopgap); (b) implement the Phase 2/3
+  method-channel + JNI wiring now.
+- **Decision & why:** **(a).** The full wiring is a large effort that also needs
+  the render loop + texture handoff to be visible; a one-line resilience fix stops
+  the immediate log-flood without pretending effects work.
+
+---
+
+## 2026-07-02
+
+### PR #17 — Camera permission, natively (`20cd9a6`) — supersedes #16
+- **Change:** request `CAMERA` via a plugin-native `ActivityAware` +
+  `RequestPermissionsResultListener` (method-channel `requestCameraPermission`);
+  keep the manifest declarations.
+- **Options:** (a) `permission_handler` package (what #16 did); (b) native
+  `ActivityAware` request; (c) manifest-only.
+- **Decision & why:** **(b).** #16's `permission_handler` **broke the build** —
+  it pulls a new AGP artifact that this machine can't download (`PKIX path
+  building failed` SSL error). `androidx.core` (`ContextCompat`/`ActivityCompat`)
+  is already on the classpath, so the native path needs **no new downloads**.
+  **Lesson recorded (now a standing constraint): do not add new pub/Gradle
+  dependencies in this environment.** Verified: `flutter build apk` succeeds.
+
+### PR #16 — Camera permission via permission_handler (`5f65765`) — REVERTED by #17
+- **Change:** added `permission_handler` + a Dart permission gate.
+- **Why rejected:** correct in intent, but the new Gradle dependency failed to
+  download on the dev machine's cert store, breaking the build. See #17.
+
+### PR #15 — Make TensorFlow Lite optional (`3ef4f2b`)
+- **Change:** build links a **stub** `tflite_backend` when TFLite isn't vendored,
+  so the app builds without it; the real backend links automatically when present.
+- **Options:** (a) keep #12's `FATAL_ERROR` when TFLite absent; (b) optional stub;
+  and for (b): a separate stub file vs an `#if` guard inside `tflite_backend.cpp`.
+- **Decision & why:** **(b) with a separate `tflite_backend_stub.cpp`.** #12's hard
+  error blocked *every* build including the Phase 0 pipeline the user wanted to
+  test, while a full TFLite build is a heavy device-bring-up task. Separate stub
+  file avoids wrapping the large real file in macros. Verified: **first installable
+  APK** built.
+
+### PR #14 — Consolidation & bring-up log (docs, `118ab93`)
+- **Change:** `docs/CONSOLIDATION_AND_BRINGUP.md`. **Decision:** a durable repo
+  status doc (vs chat-only summary) so the state survives sessions.
+
+### PR #13 — Bind segmenter output to a GPU texture (`2732026`)
+- **Change:** `SegmenterImpl` binds the model output tensor to the GPU mask
+  texture instead of the commented-out CPU readback that returned an
+  uninitialized texture.
+- **Options:** (a) CPU readback + re-upload; (b) `bindOutputTexture` (zero-copy).
+- **Decision & why:** **(b)** — matches the multiclass backend and invariant 1
+  (pixels stay GPU-resident). Prompted by an honest review of whether the
+  segmenters would actually work (they wouldn't have, with the stub).
+
+### PR #12 — TFLite vendoring scaffold (`50e6a15`)
+- **Change:** CMake consumes `third_party/tensorflow-lite/{include,lib/<ABI>}`;
+  `tools/fetch_tflite.sh` + README document how to obtain them.
+- **Options:** (a) vendored prebuilt via a fetch script (source checkout for
+  headers + from-source `.so` build); (b) Gradle `prefab` / Maven AAR.
+- **Decision & why:** **(a).** `tflite_backend.cpp` uses the GPU **GL-interop**
+  delegate API (`delegates/gpu/gl/*`, `TfLiteGpuDelegateBindGl*`), which is **not
+  in the standard AAR** — only in the TF source tree. So a source checkout for
+  headers + Bazel build for libs is required; a Maven AAR can't satisfy it.
+
+### PR #11 — Consolidate the GLES render-context delta (`1f6f443`)
+- **Change:** merge `gles_render_context_phase3_updates.cpp` into
+  `gles_render_context.cpp`; add a `GlesFramebuffer` FBO-adopt constructor; delete
+  the delta + its CMake entry.
+- **Options:** (a) just rename `GLESRenderContext`→`GlesRenderContext`; (b) merge
+  the methods into the canonical `.cpp`.
+- **Decision & why:** **(b).** The delta defined members of a class it couldn't
+  see (the class lives only in the other `.cpp`), so a rename alone can't compile
+  — the members must live in the same TU. The MRT path also needed a
+  framebuffer-adopt constructor that didn't exist.
+
+### PR #10 — Two `gles_compute.cpp` build errors (`7333124`)
+- **Change:** add `<GLES2/gl2ext.h>` (`GL_TEXTURE_EXTERNAL_OES`); make `mapped_`
+  `mutable` (assigned in a `const` method). **Decision:** conformance fixes, no
+  alternatives. **Discovery here:** the NDK sysroot ships GLES/EGL headers, so
+  the GLES backend files *are* compile-verifiable — which unlocked #11.
+
+### PR #9 — Flutter plugin + example platform scaffolding (`c5174d5`)
+- **Change:** generate the missing plugin build files + `example/android` &
+  `example/ios` runners; wire the C++ `CMakeLists.txt` into Gradle
+  `externalNativeBuild`.
+- **Options:** (a) hand-write the build files; (b) `flutter create` + reconcile.
+  And for package name: keep `dev.communityar` vs adopt the conventional
+  `dev.communityar.community_ar`.
+- **Decision & why:** **(b)**, keeping `dev.communityar`. `flutter create`
+  produces correct interconnected Gradle/Xcode files; hand-writing risks version
+  drift. The package stays `dev.communityar` because the JNI symbols are
+  `Java_dev_communityar_*` and the Kotlin already lives there. Verified via a real
+  `flutter build apk` — which **surfaced the `gles_compute.cpp` bugs** (#10).
+
+---
+
+## 2026-07-01
+
+### PR #8 — Example: showcase the full public API (`b8ed592`)
+- **Change:** rewrite `example/lib/main.dart` into a comprehensive device-test
+  harness (all presets, quality tiers, every beauty/lip param, debug overlays,
+  stats HUD).
+- **Options:** show a representative subset vs every exported capability; and
+  keep deprecated `withOpacity`/`Color.value` vs the newer `withValues`/`.r`.
+- **Decision & why:** show **everything** (it's the on-device test harness), and
+  **keep the deprecated APIs** — their replacements require Flutter 3.27+ while the
+  package targets 3.0+.
+
+### PR #7 — Reconstruct the Phase 2 session integration (`76f9f91`) → 25/25
+- **Change:** add the whole `Phase0Session` Phase 2 surface
+  (`Phase2Members`/`p2_`, `effectGraph()`/`perceptionPipeline()`/`neuralBackend()`
+  /render accessors), two `CARStatus` codes, and fix a move-only-lambda-in-
+  `std::function` bug.
+- **Options (put to the user):** **bounded** (just the FFI declarations, 24/25);
+  **full** reconstruction (25/25); **stop + tracking issue.**
+- **Decision & why:** user chose **full.** New `CARStatus` values were **added**
+  (unused enum slots), never modifying existing ones (C ABI invariant 2). The
+  effect list is move-only, so it's wrapped in a `shared_ptr` to stay copyable for
+  `std::function`. All 25 platform-agnostic TUs now compile.
+
+### PR #6 — SkinToneEstimator readback polling → member (`c7a3d55`)
+- **Change:** make `pollPending` a member of the private `Impl` it touches.
+- **Options:** (a) member function; (b) `friend`; (c) expose `Impl` publicly.
+- **Decision & why:** **(a)** — it only touches `Impl` state; keeps encapsulation
+  (no public `Impl`).
+
+### PR #5 — Reconstruct the PerceptionPipeline Phase 3 integration (`efaad30`)
+- **Change:** define the missing `Impl` (shared header), constructor/destructor/
+  `unloadIdleModels`, unify two contradictory state models through `impl_->`, add
+  a `RenderContext*` to the constructor, wire `run()`→`runSegmenterForFrame()`.
+- **Options (put to the user):** **minimal** compile+link; **full** runtime
+  reconstruction; **defer.**
+- **Decision & why:** user chose **full.** No ground-truth to recover from (unlike
+  the segmenter/TFLite case), so this is genuine reconstruction — flagged as
+  compile/link-correct but not runtime-verified. `ctx` provisioning added to the
+  constructor (vs a later setter) since `run()` needs it.
+
+### PR #4 — Align segmenter backends to the canonical NeuralBackend API (`d16bc12`)
+- **Change:** rewrite the segmenter backends + fix `perception_models.cpp` to use
+  `loadModel()→NeuralModel` / `setInputTexture(CameraInputRect)`.
+- **Options:** (a) align the consumers to the real interface; (b) change the
+  `NeuralBackend` interface to match the consumers.
+- **Decision & why:** **(a)** — **no genuine fork:** `TfliteBackend`/`CoreMLBackend`
+  already implement the canonical interface, so the hallucinated
+  `runInference`/`ModelConfig`/`unloadModel` consumers were simply wrong.
+
+### PR #3 — `pnp_solver.cpp` missing `<vector>` (`9c36c65`)
+- **Change/Decision:** add the include. Conformance; no alternatives.
+
+### PR #2 — FaceTracker header compiles (`5756983`)
+- **Change:** replace the `Config{}` in-class default argument (which consumed a
+  nested type's default member initializers — ill-formed) with two constructors;
+  add missing `<memory>`/`<functional>`.
+- **Options:** braces vs parens for the default arg (neither fixes it) vs two
+  constructors.
+- **Decision & why:** **two constructors** — the only correct fix; the
+  default-constructed `Config` moves to the `.cpp` where DMIs are usable.
+
+### PR #1 — Consolidate the Phase 3 interface deltas (`a84f91a`)
+- **Change:** merge the Phase 3 deltas into canonical headers — define
+  `PerceptionInputs` for real, add the `Effect` `passOrder()`/`maskRequirements()`
+  + mask-pool overloads, add `PerceptionFrame::segmentationMasks`, fold
+  `RenderContextEx` into base `RenderContext`, fix `blit`.
+- **Options:** keep Phase 2 `prepare/render` **pure** vs **non-pure**; keep
+  `RenderContextEx` as a subclass (with casts) vs fold into base.
+- **Decision & why:** made the Phase 2 methods **non-pure** so effects overriding
+  only the pool overloads (`SkinSmoothEffect`) stay concrete; **folded
+  `RenderContextEx` into base** and kept `using RenderContextEx = RenderContext`
+  for backward-compatible call sites. Result: the effect graph + 9-pass beauty
+  pipeline compile.
