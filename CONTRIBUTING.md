@@ -64,6 +64,19 @@ This isn't bureaucracy. It's because the codebase has invariants (see [`CLAUDE.m
 - **Tests are required, not optional.** [`TESTING.md`](TESTING.md) at the repo root is the testing guide — it walks first-time contributors through what to run before submitting, what tests to add for your specific kind of change, and the on-device verification protocol for changes that touch rendering. Read it before opening your first PR.
 - New effects aren't merged until they've been tested on real faces — at minimum two skin tones and two hair textures. We can help with this if you don't have the devices/faces yourself.
 
+### Documentation upkeep (required)
+
+Two docs keep the project resumable across breaks, sessions, and new
+contributors. Keeping them current is part of "done" for any non-trivial change —
+update them in the same PR (or a docs PR alongside it):
+
+1. **[`docs/DETAILED_CHANGELOG.md`](docs/DETAILED_CHANGELOG.md)** — briefly record
+   the decision (options considered + why), the implementation, and any testing
+   result, dated, with the related commit/PR.
+2. **[`docs/START_HERE.md`](docs/START_HERE.md)** — keep it reflecting the latest
+   detailed project state (what compiles/works, the current blocker, next tasks)
+   so anyone picking the project up lands on reality.
+
 ### Code review
 
 - We review for: architectural fit, performance, code clarity, test coverage, and quality across diverse inputs.

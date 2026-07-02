@@ -86,6 +86,20 @@ testable until #1 works).
 
 ---
 
+## Keeping the project resumable (standing rule — do not skip)
+Two docs are how state/knowledge transfer across breaks, sessions, and
+contributors. As development/design/implementation/testing move, keep them
+current **as part of "done"**, not as an afterthought:
+1. **[`DETAILED_CHANGELOG.md`](DETAILED_CHANGELOG.md)** — briefly record every
+   non-trivial update (decision + options/why, implementation, testing result),
+   dated, with the related commit/PR.
+2. **This file (`START_HERE.md`)** — always reflect the **latest detailed state**
+   (what compiles/works, current blocker, next tasks, env limits) so the next
+   person/session lands on reality.
+
+Before ending a session, verify this file is accurate and the changelog has
+entries for what was done.
+
 ## Working conventions (that have worked well here)
 - One focused fix per branch/PR; conventional-commit title; DCO `-s` sign-off;
   `Co-Authored-By: Claude Opus 4.8`.
