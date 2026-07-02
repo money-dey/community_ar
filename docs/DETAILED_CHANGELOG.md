@@ -9,6 +9,14 @@ commit + PR. This is the "why," complementing `CONSOLIDATION_AND_BRINGUP.md`
 
 Entry format: `PR #N — title (date, commit) · Change · Options · Decision & why`.
 
+> **Standing project-management rule (do not skip).** As development, design,
+> implementation, and testing move:
+> 1. **Record every non-trivial update here** — briefly, dated, with the related
+>    commit/PR. This is part of "done" for a change, not an afterthought.
+> 2. **Keep [`START_HERE.md`](START_HERE.md) reflecting the latest detailed project
+>    state** so anyone resuming, switching to a new session, or onboarding lands on
+>    reality. Stale docs defeat the whole handoff mechanism.
+
 ---
 
 ## Cross-cutting decisions (apply throughout)
