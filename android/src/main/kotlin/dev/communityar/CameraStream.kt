@@ -22,6 +22,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.*
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
@@ -44,6 +45,20 @@ class CameraStream(
     private var captureSession: CameraCaptureSession? = null
     private var cameraThread: HandlerThread? = null
     private var cameraHandler: Handler? = null
+
+    // Preview request builder is kept so hardware zoom (CONTROL_ZOOM_RATIO) can
+    // be updated and re-submitted without rebuilding the whole request.
+    private var previewRequestBuilder: CaptureRequest.Builder? = null
+
+    // Hardware-zoom capability, resolved from CameraCharacteristics when the
+    // camera is chosen (readable synchronously after start()). CONTROL_ZOOM_RATIO
+    // needs API 30+; older devices fall back to digital zoom in the GL pipeline.
+    var supportsHardwareZoom: Boolean = false
+        private set
+    var maxZoom: Float = 1f
+        private set
+    private var minZoom: Float = 1f
+    private var pendingZoom: Float = 1f
 
     fun start() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
@@ -84,6 +99,7 @@ class CameraStream(
 
         val chars = manager.getCameraCharacteristics(cameraId)
         onSensorOrientation(chars[CameraCharacteristics.SENSOR_ORIENTATION] ?: 0)
+        resolveZoomRange(chars)
 
         try {
             manager.openCamera(cameraId, object : CameraDevice.StateCallback() {
@@ -108,16 +124,56 @@ class CameraStream(
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(session: CameraCaptureSession) {
                     captureSession = session
-                    val req = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                    val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                         addTarget(targetSurface)
                         set(CaptureRequest.CONTROL_AF_MODE,
                             CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                    }.build()
-                    session.setRepeatingRequest(req, null, cameraHandler)
+                        // Apply any zoom requested before the session existed.
+                        if (supportsHardwareZoom &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            set(CaptureRequest.CONTROL_ZOOM_RATIO, pendingZoom)
+                        }
+                    }
+                    previewRequestBuilder = builder
+                    session.setRepeatingRequest(builder.build(), null, cameraHandler)
                 }
                 override fun onConfigureFailed(session: CameraCaptureSession) {
                     Log.e(TAG, "Capture session config failed")
                 }
             }, cameraHandler)
+    }
+
+    // -------------------------------------------------------------------------
+    // Zoom (hardware / CONTROL_ZOOM_RATIO, API 30+)
+    // -------------------------------------------------------------------------
+    private fun resolveZoomRange(chars: CameraCharacteristics) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val range = chars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+            if (range != null && range.upper > 1f) {
+                supportsHardwareZoom = true
+                minZoom = range.lower
+                maxZoom = range.upper
+                return
+            }
+        }
+        supportsHardwareZoom = false
+        minZoom = 1f
+        maxZoom = 1f
+    }
+
+    /** Set the hardware zoom ratio (clamped to the device range). No-op if the
+     *  camera has no hardware zoom — the caller uses digital zoom instead. */
+    fun setZoom(ratio: Float) {
+        if (!supportsHardwareZoom ||
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        pendingZoom = ratio.coerceIn(minZoom, maxZoom)
+        val session = captureSession ?: return
+        val builder = previewRequestBuilder ?: return
+        builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, pendingZoom)
+        try {
+            session.setRepeatingRequest(builder.build(), null, cameraHandler)
+        } catch (e: Exception) {
+            Log.e(TAG, "setZoom failed", e)
+        }
     }
 }

@@ -56,6 +56,27 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
   externally owned.
 - **Verification:** docs only; no code change.
 
+### Pinch-to-zoom — hybrid hardware + digital (utility feature)
+- **Change:** pinch-to-zoom on the camera preview. Gesture is a Flutter
+  `GestureDetector` (scale) over the Phase 0 view → `setZoom(factor)` over the
+  method channel; `getMaxZoom()` reports the active camera's ceiling. One Kotlin
+  `setZoom()` routes to **hardware** zoom (`CONTROL_ZOOM_RATIO`, API 30+) when the
+  camera advertises `CONTROL_ZOOM_RATIO_RANGE`, else a **digital** crop folded
+  into the GL pipeline's UV transform (scale-about-centre by 1/zoom).
+- **Options (put to the user):** digital-only (GPU crop); hardware-only
+  (Camera2); **hybrid**. User chose **hybrid** — hardware quality where
+  available, universal fallback everywhere.
+- **Design notes:** no C++/C-ABI change — digital zoom rides the existing
+  `computeUvTransform` (uniform scale, commutes with the rotation), hardware zoom
+  is pure Camera2 (keep the preview `CaptureRequest.Builder` around, re-submit on
+  zoom). Backend chosen per-camera from `CameraCharacteristics`, resolved
+  synchronously when the camera opens so `getMaxZoom()` is ready right after
+  `startCamera`. Zoom resets to 1.0 on camera switch (range/backend differ).
+  Pixels stay on the GPU (CLAUDE.md §1) — Dart only sends a float.
+- **Verification:** `dart analyze` (no new issues) + `flutter build apk --debug`
+  build & link. Hardware-vs-digital selection and the actual zoom quality are
+  **only confirmable on-device** (the dev env has no camera).
+
 ### Android pipeline — first on-device result + orientation tuning
 - **Change:** the pipeline **shows live camera on a real device** (EGL,
   presentation into the Flutter texture, and OES sampling all confirmed working

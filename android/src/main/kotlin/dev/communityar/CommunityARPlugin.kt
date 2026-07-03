@@ -47,6 +47,9 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         private const val DISPLAY_WIDTH = 720
         private const val DISPLAY_HEIGHT = 1280
 
+        // Max zoom reported when only the digital (GPU-crop) fallback is used.
+        private const val DIGITAL_MAX_ZOOM = 5.0
+
         init { System.loadLibrary("community_ar_native") }
     }
 
@@ -86,6 +89,8 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 "startCamera"      -> { startCamera(call.argument("lens") ?: "front"); result.success(null) }
                 "switchCamera"     -> { switchCamera(call.argument("lens") ?: "front"); result.success(null) }
                 "setTestMode"      -> { setTestMode(call.argument("mode") ?: 0); result.success(null) }
+                "setZoom"          -> { setZoom(call.argument<Double>("zoom") ?: 1.0); result.success(null) }
+                "getMaxZoom"       -> result.success(getMaxZoom())
                 "outputTextureId"  -> result.success(surfaceEntry?.id() ?: -1)
                 "outputDimensions" -> result.success(getOutputDimensions())
                 "getStats"         -> result.success(getStats())
@@ -150,6 +155,29 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             gl.setOrientation(sensorOrientation, isFront)
         }
         cameraStream?.start()
+        // Reset zoom for the newly opened camera (its range/backend may differ).
+        gl.setDigitalZoom(1f)
+    }
+
+    // -------------------------------------------------------------------------
+    // Zoom — hybrid: hardware (Camera2 CONTROL_ZOOM_RATIO) where the device
+    // supports it, else a digital crop in the GL pipeline. One setZoom() surface.
+    // -------------------------------------------------------------------------
+    private fun setZoom(zoom: Double) {
+        val z = zoom.toFloat()
+        val cs = cameraStream
+        if (cs != null && cs.supportsHardwareZoom) {
+            cs.setZoom(z)
+            pipeline?.setDigitalZoom(1f)   // keep the GL crop out of the way
+        } else {
+            pipeline?.setDigitalZoom(z)
+        }
+    }
+
+    private fun getMaxZoom(): Double {
+        val cs = cameraStream
+        return if (cs != null && cs.supportsHardwareZoom) cs.maxZoom.toDouble()
+               else DIGITAL_MAX_ZOOM
     }
 
     private fun switchCamera(lens: String) {

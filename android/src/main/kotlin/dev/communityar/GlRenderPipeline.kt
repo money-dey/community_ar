@@ -102,6 +102,11 @@ class GlRenderPipeline(
     @Volatile private var cameraRotation: Int = 0
     @Volatile private var isFront: Boolean = true
 
+    // Digital-zoom factor (>=1). Used only as the fallback when the camera has
+    // no hardware zoom; the plugin holds it at 1.0 when hardware zoom is active.
+    // Applied as a crop-toward-centre in the UV transform.
+    @Volatile private var digitalZoom: Float = 1f
+
     // Per-frame scratch matrices (only ever touched on the GL thread).
     private val stMatrix = FloatArray(16)
     private val orientMatrix = FloatArray(16)
@@ -152,6 +157,11 @@ class GlRenderPipeline(
     fun setOrientation(rotationDegrees: Int, front: Boolean) {
         cameraRotation = rotationDegrees
         isFront = front
+    }
+
+    /** Digital-zoom fallback factor (>=1). 1.0 = no zoom. */
+    fun setDigitalZoom(zoom: Float) {
+        digitalZoom = zoom.coerceIn(1f, 8f)
     }
 
     /** Tears everything down on the GL thread, then stops the thread. */
@@ -291,6 +301,13 @@ class GlRenderPipeline(
     private fun computeUvTransform(st: FloatArray, front: Boolean): FloatArray {
         Matrix.setIdentityM(orientMatrix, 0)
         Matrix.translateM(orientMatrix, 0, 0.5f, 0.5f, 0f)
+        // Digital zoom: sample a smaller centred region (scale UVs by 1/zoom
+        // about the centre). Uniform, so it commutes with the rotation below.
+        // No-op when zoom == 1 (e.g. whenever hardware zoom is in use).
+        if (digitalZoom != 1f) {
+            val s = 1f / digitalZoom
+            Matrix.scaleM(orientMatrix, 0, s, s, 1f)
+        }
         Matrix.rotateM(orientMatrix, 0, UV_ROTATION_DEG.toFloat(), 0f, 0f, 1f)
         if (front && MIRROR_FRONT) Matrix.scaleM(orientMatrix, 0, -1f, 1f, 1f)
         Matrix.translateM(orientMatrix, 0, -0.5f, -0.5f, 0f)
