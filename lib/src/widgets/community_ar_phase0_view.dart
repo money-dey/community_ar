@@ -45,6 +45,13 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
   int _height = 0;
   String? _error;
 
+  // Pinch-to-zoom state. `_maxZoom` is the active camera's max (hardware range
+  // when supported, else the digital cap); `_zoom` is the live factor and
+  // `_baseZoom` the factor captured at gesture start.
+  double _maxZoom = 1.0;
+  double _zoom = 1.0;
+  double _baseZoom = 1.0;
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +65,7 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
         lens: widget.camera == Phase0CameraLens.front ? 'front' : 'back',
       );
       await CommunityARPhase0FFI.setTestMode(widget.testMode);
+      _maxZoom = await CommunityARPhase0FFI.getMaxZoom();
 
       // Output dimensions are populated once the first frame has been
       // submitted; poll briefly for them.
@@ -92,7 +100,26 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
       CommunityARPhase0FFI.switchCamera(
         lens: widget.camera == Phase0CameraLens.front ? 'front' : 'back',
       );
+      // New camera → reset zoom and refresh its max (range/backend may differ).
+      _zoom = 1.0;
+      _refreshMaxZoom();
     }
+  }
+
+  Future<void> _refreshMaxZoom() async {
+    final m = await CommunityARPhase0FFI.getMaxZoom();
+    if (mounted) _maxZoom = m;
+  }
+
+  void _onScaleStart(ScaleStartDetails _) => _baseZoom = _zoom;
+
+  void _onScaleUpdate(ScaleUpdateDetails d) {
+    // Only the pinch component matters; single-finger drags report scale ~1.0.
+    final z = (_baseZoom * d.scale).clamp(1.0, _maxZoom);
+    if ((z - _zoom).abs() < 0.001) return;
+    _zoom = z;
+    // Fire-and-forget; native clamps and applies on the render/camera thread.
+    CommunityARPhase0FFI.setZoom(z);
   }
 
   @override
@@ -124,12 +151,19 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
         child: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
-    return FittedBox(
-      fit: widget.fit,
-      child: SizedBox(
-        width: _width.toDouble(),
-        height: _height.toDouble(),
-        child: Texture(textureId: _textureId!),
+    return GestureDetector(
+      // Pinch to zoom. behavior=opaque so the whole preview area is hit-testable
+      // even where the Texture doesn't paint (letterbox margins under BoxFit).
+      behavior: HitTestBehavior.opaque,
+      onScaleStart: _onScaleStart,
+      onScaleUpdate: _onScaleUpdate,
+      child: FittedBox(
+        fit: widget.fit,
+        child: SizedBox(
+          width: _width.toDouble(),
+          height: _height.toDouble(),
+          child: Texture(textureId: _textureId!),
+        ),
       ),
     );
   }

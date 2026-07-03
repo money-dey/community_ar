@@ -154,14 +154,37 @@ On `onFrameAvailable` (render thread):
 ---
 
 ## 4. Sizing, rotation, mirroring
-- Display size = the `SurfaceTexture` default buffer size (currently
-  `1280x720`). Match the window surface + `getOutputDimensions` to it.
-- Portrait devices report `SENSOR_ORIENTATION = 90/270`; either swap
-  width/height for the widget (as `processFrame` already does) **and/or** bake
-  rotation into the vertex/UV transform.
-- Front camera needs a horizontal mirror. Fold this into the same UV transform.
-- Prefer applying camera rotation/mirror via the `SurfaceTexture` transform
-  matrix + a small extra transform, not by swapping buffers.
+
+> **On-device status (post-PR #22):** the pipeline presents live camera on a real
+> device — EGL, presentation, and OES sampling all confirmed working. First-pass
+> orientation was a quarter-turn off (image "lying on its side") and stretched;
+> both are the *same* bug (see below) and are tuned via two constants in
+> `GlRenderPipeline.kt`.
+
+- **The rotation and the stretch are one problem.** Camera is `1280×720`
+  (landscape); the display buffer is `720×1280` (portrait). A *correct* 90°/270°
+  rotation swaps the axes (`1280↔1280`, `720↔720`) and fills the buffer with **no
+  stretch**. If you see stretching, the rotation isn't a clean quarter-turn —
+  fix the rotation and the stretch goes with it.
+- **Tuning knobs** (`GlRenderPipeline.kt` companion object): `UV_ROTATION_DEG`
+  (try `{270, 90, 0, 180}` until upright) and `MIRROR_FRONT` (front-camera
+  horizontal mirror). On-device testing showed **both cameras need the same
+  rotation**; only the front adds the mirror — so the rotation is a single fixed
+  value, *not* derived from `SENSOR_ORIENTATION` (which is where the sign/handedness
+  confusion lives). A one-shot logcat line dumps `sensorOrientation` + the
+  `SurfaceTexture` matrix to help pin it down.
+- The transform is applied to the quad UVs in the OES shader as
+  `uTexMatrix = st * orient` (`st` = `SurfaceTexture.getTransformMatrix`, handling
+  OES crop/flip; `orient` = rotation + optional mirror about the UV centre).
+- `getOutputDimensions` returns the `720×1280` buffer size; the Flutter widget
+  `BoxFit.cover`s it to the screen, so native only needs a correctly-oriented,
+  correct-aspect image — no crop math native-side.
+- **Not yet handled — following live device rotation.** The current build assumes
+  a portrait-held device. The example app is *not* portrait-locked, so in
+  landscape the fixed `720×1280` portrait buffer is wrong. Full support needs the
+  display rotation (`WindowManager`/`Display.getRotation()`) folded into
+  `UV_ROTATION_DEG` **and** swapping the buffer/`getOutputDimensions` dimensions
+  for landscape. Tracked as a follow-up; portrait-upright is the first target.
 
 ---
 

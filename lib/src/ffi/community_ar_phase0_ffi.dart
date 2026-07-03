@@ -80,6 +80,19 @@ class CommunityARPhase0FFI {
     await _channel.invokeMethod('setTestMode', {'mode': mode.index});
   }
 
+  /// Maximum supported zoom factor for the active camera. Hardware zoom range
+  /// when the device supports it (via Camera2), otherwise the digital cap.
+  static Future<double> getMaxZoom() async {
+    final z = await _channel.invokeMethod<double>('getMaxZoom');
+    return z ?? 1.0;
+  }
+
+  /// Set the zoom factor (>=1). Routed to hardware zoom where available, else a
+  /// digital crop in the render pipeline. Values are clamped natively.
+  static Future<void> setZoom(double zoom) async {
+    await _channel.invokeMethod('setZoom', {'zoom': zoom});
+  }
+
   static Future<CARPhase0Stats> getStats() async {
     final m = await _channel.invokeMethod<Map>('getStats');
     return CARPhase0Stats.fromMap(m);
