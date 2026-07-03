@@ -40,13 +40,22 @@ now builds and runs.
 1. **[`CONSOLIDATION_AND_BRINGUP.md`](CONSOLIDATION_AND_BRINGUP.md)** — the master
    status/log: what each PR did, the verification methodology + limits, current
    state, and the platform-integration gap. **The main status doc.**
-2. **[`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md)** — the
-   black-preview blocker: what's broken, target architecture (recommended:
-   Kotlin owns EGL), step-by-step plan + file touch points, and an ordered
-   on-device verification checklist.
-3. **[`../CLAUDE.md`](../CLAUDE.md)** — architectural invariants and the
+2. **[`RENDER_PIPELINE_OWNERSHIP.md`](RENDER_PIPELINE_OWNERSHIP.md)** — the
+   load-bearing decision behind the whole render layer: *who owns the GPU
+   context + presentation surface* (platform vs. C++), why **Option A (platform
+   owns it)** was chosen on both platforms, the challenges/tradeoffs hit
+   implementing it, and how to reverse it if needed. Read before touching the
+   pipeline on either platform.
+3. **[`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md)** — Android
+   GL/EGL: what was broken, the Option-A architecture (now implemented, PR #22),
+   file touch points, and the ordered on-device verification checklist.
+4. **[`IOS_RENDER_PIPELINE.md`](IOS_RENDER_PIPELINE.md)** — iOS Metal: the
+   analogous (still-unimplemented) black-preview gap, the pull-based Option-A
+   target architecture, plan + touch points, and an on-device checklist. Needs a
+   Mac; not verifiable in this dev env.
+5. **[`../CLAUDE.md`](../CLAUDE.md)** — architectural invariants and the
    "delta document" convention that caused the original non-compiling state.
-4. **[`CARRIED_FORWARD.md`](CARRIED_FORWARD.md)** — pre-existing deferred items.
+6. **[`CARRIED_FORWARD.md`](CARRIED_FORWARD.md)** — pre-existing deferred items.
 
 ---
 

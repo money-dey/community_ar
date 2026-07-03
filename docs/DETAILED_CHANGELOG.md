@@ -34,6 +34,28 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-03
 
+### Render-pipeline ownership ADR + iOS pipeline guide (docs)
+- **Change:** added `docs/RENDER_PIPELINE_OWNERSHIP.md` (why the platform layer,
+  not C++, owns the GPU context + presentation surface — an ADR with the reframe,
+  decision factors, the concrete challenges/tradeoffs hit implementing Option A on
+  Android, and a reversibility analysis) and `docs/IOS_RENDER_PIPELINE.md` (the
+  iOS Metal analogue of the Android bring-up guide). START_HERE links both.
+- **Why:** the ownership choice is load-bearing (shapes the FFI boundary,
+  threading, cross-platform symmetry, debuggability) and the maintainer asked for
+  it to be written down. The iOS guide captures — before anyone builds iOS — that
+  it has the *same class* of black-preview bug as Android but a **different** fix:
+  iOS is pull-based (`copyPixelBuffer`), renders into a private-storage
+  `MTLTexture` that's never connected to the fresh/blank `CVPixelBuffer` handed to
+  Flutter, so the fix is "render into the IOSurface-backed texture Flutter reads,"
+  not "render to fbo 0 + swap."
+- **Decision recorded:** **Option A (platform owns context/surface)** on both
+  platforms — chiefly for iOS symmetry (Swift necessarily owns `MTLDevice` +
+  `FlutterTexture` + `AVCaptureSession`), because Option B would *increase* the
+  JNI/FFI surface (Camera2/Surface are Java APIs), and because on-device bring-up
+  tooling is platform-side. Reversible: the C ABI already treats the context as
+  externally owned.
+- **Verification:** docs only; no code change.
+
 ### Android GL/EGL pipeline — implement Option A (Kotlin owns EGL)
 - **Change:** built the Android render pipeline that was only *documented* in
   PR #19. Kotlin now owns a dedicated GL render thread + EGL14 context + an EGL
