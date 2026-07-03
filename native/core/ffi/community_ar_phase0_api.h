@@ -77,6 +77,35 @@ CAR_EXPORT CARStatus car_p0_submit_frame(CARSession* session,
                                          int isFrontFacing);
 
 // -----------------------------------------------------------------------------
+// Frame submission (display present path) — added for the Android GL/EGL
+// bring-up (see docs/ANDROID_RENDER_PIPELINE.md, Option A).
+//
+// Unlike car_p0_submit_frame — which renders into an offscreen framebuffer
+// whose color texture is then handed to Flutter — this variant renders the
+// camera texture straight into the *default* framebuffer (fbo 0). Under
+// Option A that default framebuffer IS the platform window surface built from
+// the Flutter SurfaceTexture, so the caller (the Kotlin/EGL layer that owns
+// the window surface) presents the result with eglSwapBuffers afterwards.
+//
+// `width`/`height` are the display (window-surface) dimensions; native uses
+// them for the viewport and reports them via car_p0_get_output_dimensions.
+// `texMatrix16` is a column-major 4x4 (android.opengl.Matrix convention)
+// applied to the quad's (u, v, 0, 1) in the vertex shader — it folds together
+// the SurfaceTexture transform and any rotation/mirror. Pass the 16-float
+// identity for no transform. A null pointer is treated as identity.
+//
+// This is a NEW symbol; car_p0_submit_frame is left unchanged (C ABI stability
+// invariant — see CLAUDE.md §2).
+// -----------------------------------------------------------------------------
+CAR_EXPORT CARStatus car_p0_submit_frame_display(CARSession* session,
+                                                 uint64_t cameraTextureHandle,
+                                                 int width,
+                                                 int height,
+                                                 int rotationDegrees,
+                                                 int isFrontFacing,
+                                                 const float* texMatrix16);
+
+// -----------------------------------------------------------------------------
 // Output access — called by platform adapter
 //
 // Returns the native handle of the most recently produced output texture.

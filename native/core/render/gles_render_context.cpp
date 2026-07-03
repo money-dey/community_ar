@@ -272,6 +272,12 @@ public:
         }
     }
 
+    void bindDisplayFramebuffer(int width, int height) override {
+        // fbo 0 is the EGL window surface (Option A: owned by the Kotlin layer).
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, width, height);
+    }
+
     void clearColor(float r, float g, float b, float a) override {
         glClearColor(r, g, b, a);
         glClear(GL_COLOR_BUFFER_BIT);

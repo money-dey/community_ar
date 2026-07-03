@@ -34,6 +34,41 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-03
 
+### Android GL/EGL pipeline — implement Option A (Kotlin owns EGL)
+- **Change:** built the Android render pipeline that was only *documented* in
+  PR #19. Kotlin now owns a dedicated GL render thread + EGL14 context + an EGL
+  window surface built from the Flutter `SurfaceTexture`; the camera OES texture
+  lives on that same context; each frame does
+  `updateTexImage → compose UV transform → native render into fbo 0 → eglSwapBuffers`.
+  New `GlRenderPipeline.kt`; `CameraStream.kt` reduced to pure Camera2-into-a-
+  Surface (no GL); `CommunityARPlugin.kt` orchestrates. Native gained a display
+  present path: new C ABI symbol `car_p0_submit_frame_display` (+ `texMatrix`),
+  `Phase0Session::submitFrameToDisplay/processFrameToDisplay`, four
+  `samplerExternalOES` shaders with a `uTexMatrix`, `RenderContext::
+  bindDisplayFramebuffer` (GLES binds fbo 0 + viewport), and JNI
+  `nativeSubmitFrameDisplay`.
+- **Options:** (a) **Kotlin owns EGL** (Option A); (b) native (C++) owns EGL
+  (Option B); (c) keep documenting.
+- **Decision & why:** **(a)**, per the user's pick and the PR #19 recommendation.
+  Standard Flutter-plugin pattern, EGL centralized where Android/GPU tooling can
+  debug it, and the native side changed minimally (just render to fbo 0 instead
+  of the offscreen FBO). This fixes all five documented defects: EGL context now
+  exists; native presents into the Flutter texture via swap; the camera OES
+  texture is created on the *same* context native renders on (valid handle); the
+  display shaders sample `samplerExternalOES`; and the `SurfaceTexture` transform
+  is applied to the UVs.
+- **C ABI:** added a **new** symbol rather than changing `car_p0_submit_frame`
+  (stability invariant, CLAUDE.md §2). The old offscreen path is untouched.
+- **Deliberately deferred / needs a device:** exact rotation/mirror handedness in
+  `computeUvTransform` and portrait vs. landscape sizing (fixed 720×1280 for now)
+  are device-dependent — the mechanism is in place but the constants need the
+  on-device checklist (ANDROID_RENDER_PIPELINE.md §4–5).
+- **Verification:** NDK clang `-fsyntax-only` on all four changed native TUs +
+  the JNI bridge; `flutter build apk --debug` builds & links the full Kotlin +
+  native library. **NOT runtime-verified** — no device/GPU/camera here; the
+  §5 on-device checklist (context creates → frames arrive → updateTexImage →
+  draw+swap → widget shows camera → orientation) is the remaining work.
+
 ### PR #20 — START_HERE + session-handoff (docs, `b212e05`)
 - **Change:** `docs/START_HERE.md` single entry point + README link; plus
   project memory files for auto-recall in new sessions.

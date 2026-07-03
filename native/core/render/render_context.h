@@ -191,6 +191,16 @@ public:
 
     virtual void enableAlphaBlending(bool enable) {}
 
+    // Bind the default (window-surface) framebuffer — fbo 0 on GLES — and set
+    // the viewport to the given size. Used by the Phase 0 display present path
+    // (see docs/ANDROID_RENDER_PIPELINE.md): under Option A fbo 0 IS the
+    // platform window surface owned by the Kotlin/EGL layer, so rendering here
+    // and then swapping buffers puts pixels on screen. Unlike bindFramebuffer(
+    // nullptr) this also fixes up the viewport, which the default framebuffer
+    // needs since it has no Framebuffer object to read a size from. Default
+    // no-op keeps non-GLES backends instantiable until they implement present.
+    virtual void bindDisplayFramebuffer(int width, int height) {}
+
     virtual void currentFramebufferSize(int* outW, int* outH) const {}
 
     // Draw an arbitrary triangle list from a vertex buffer (mask rasterizer).

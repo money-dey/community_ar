@@ -11,8 +11,10 @@
 //
 // Threading:
 //   - Plugin method-channel calls arrive on the Flutter platform thread
-//   - Camera frames arrive on the camera background thread
-//   - All native calls are non-blocking; native runs its own render thread
+//   - Camera2 device/session callbacks run on CameraStream's camera thread
+//   - ALL GL/EGL and native session calls run on GlRenderPipeline's single GL
+//     render thread (the JNI lambdas passed to the pipeline are invoked there);
+//     see docs/ANDROID_RENDER_PIPELINE.md (Option A: Kotlin owns EGL).
 // =============================================================================
 
 package dev.communityar
@@ -22,10 +24,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.SurfaceTexture
-import android.hardware.camera2.*
-import android.opengl.*
-import android.os.Handler
-import android.os.HandlerThread
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -44,6 +42,11 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         const val CHANNEL = "dev.communityar/methods"
         private const val CAMERA_PERMISSION_REQUEST = 0xCA
 
+        // Portrait display buffer. The landscape camera is sampled into this via
+        // the pipeline's per-frame UV transform; see ANDROID_RENDER_PIPELINE.md §4.
+        private const val DISPLAY_WIDTH = 720
+        private const val DISPLAY_HEIGHT = 1280
+
         init { System.loadLibrary("community_ar_native") }
     }
 
@@ -53,6 +56,8 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     private var surfaceEntry: TextureRegistry.SurfaceTextureEntry? = null
     private var cameraStream: CameraStream? = null
+    private var pipeline: GlRenderPipeline? = null
+    private var currentLens: String = "front"
 
     // Activity + a pending permission result (one request in flight at a time).
     private var activity: Activity? = null
@@ -100,15 +105,28 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         if (nativeSessionPtr != 0L) return nativeSessionPtr
 
         // Allocate a Flutter SurfaceTexture entry. This gives us a textureId
-        // that the Flutter Texture widget will display, and a SurfaceTexture
-        // that we'll let the native side render into.
+        // that the Flutter Texture widget will display, and the SurfaceTexture
+        // the GL pipeline turns into its EGL window (presentation) surface.
         val entry = textureRegistry.createSurfaceTexture()
         surfaceEntry = entry
 
-        // Hand the EGL context to native. The native side will set up its own
-        // GLES context shared with Flutter's, allowing zero-copy texture
-        // sharing through EGLImage.
-        nativeSessionPtr = nativeCreateSession(entry.surfaceTexture())
+        // Stand up the GL/EGL render pipeline (Option A: Kotlin owns EGL). The
+        // native ops below are invoked on the pipeline's GL thread, where the
+        // EGL context is current — required, since they issue GL calls.
+        val gl = GlRenderPipeline(
+            displayWidth = DISPLAY_WIDTH,
+            displayHeight = DISPLAY_HEIGHT,
+            nativeCreateSession = { st -> nativeCreateSession(st) },
+            nativeSubmitFrameDisplay = { ptr, tex, w, h, rot, front, mat ->
+                nativeSubmitFrameDisplay(ptr, tex.toLong(), w, h, rot, front, mat)
+            },
+            nativeDestroySession = { ptr -> nativeDestroySession(ptr) },
+        )
+        pipeline = gl
+        if (!gl.start(entry.surfaceTexture())) {
+            Log.e(TAG, "GL pipeline failed to start")
+        }
+        nativeSessionPtr = gl.nativeSessionPtr
         Log.i(TAG, "Native session created: $nativeSessionPtr")
         return nativeSessionPtr
     }
@@ -117,10 +135,19 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     // Camera
     // -------------------------------------------------------------------------
     private fun startCamera(lens: String) {
-        if (cameraStream != null) cameraStream?.stop()
-        cameraStream = CameraStream(appContext, isFront = lens == "front") { tex, w, h, rot ->
-            // tex is the OES external GL texture name backed by Camera2's SurfaceTexture
-            nativeSubmitFrame(nativeSessionPtr, tex.toLong(), w, h, rot, if (lens == "front") 1 else 0)
+        cameraStream?.stop()
+        currentLens = lens
+        val gl = pipeline ?: run {
+            Log.e(TAG, "startCamera before pipeline is ready")
+            return
+        }
+        val target = gl.cameraInputSurface() ?: run {
+            Log.e(TAG, "startCamera: camera input surface not available")
+            return
+        }
+        val isFront = lens == "front"
+        cameraStream = CameraStream(appContext, isFront, target) { sensorOrientation ->
+            gl.setOrientation(sensorOrientation, isFront)
         }
         cameraStream?.start()
     }
@@ -157,10 +184,12 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private fun teardown() {
         cameraStream?.stop()
         cameraStream = null
-        if (nativeSessionPtr != 0L) {
-            nativeDestroySession(nativeSessionPtr)
-            nativeSessionPtr = 0
-        }
+        // The pipeline destroys the native session on its GL thread (native
+        // teardown issues GL deletes that need the context current), then tears
+        // down EGL and stops the thread.
+        pipeline?.release()
+        pipeline = null
+        nativeSessionPtr = 0
         surfaceEntry?.release()
         surfaceEntry = null
     }
@@ -228,6 +257,10 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private external fun nativeSubmitFrame(ptr: Long, textureHandle: Long,
                                            width: Int, height: Int,
                                            rotation: Int, isFront: Int)
+    private external fun nativeSubmitFrameDisplay(ptr: Long, textureHandle: Long,
+                                                  width: Int, height: Int,
+                                                  rotation: Int, isFront: Int,
+                                                  texMatrix: FloatArray)
     private external fun nativeSetTestMode(ptr: Long, mode: Int)
     private external fun nativeGetOutputDimensions(ptr: Long, out: IntArray)
     private external fun nativeGetStats(ptr: Long): FloatArray

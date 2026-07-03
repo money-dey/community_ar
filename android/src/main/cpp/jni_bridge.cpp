@@ -46,6 +46,25 @@ Java_dev_communityar_CommunityARPlugin_nativeSubmitFrame(
 }
 
 JNIEXPORT void JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeSubmitFrameDisplay(
+        JNIEnv* env, jobject, jlong ptr,
+        jlong textureHandle, jint width, jint height,
+        jint rotation, jint isFront, jfloatArray texMatrix) {
+    // Copy the 4x4 UV transform (column-major, android.opengl.Matrix layout)
+    // out of the Java float[16]. A null/short array falls back to identity
+    // (handled native-side by passing nullptr).
+    float mat[16];
+    const float* matPtr = nullptr;
+    if (texMatrix != nullptr && env->GetArrayLength(texMatrix) >= 16) {
+        env->GetFloatArrayRegion(texMatrix, 0, 16, mat);
+        matPtr = mat;
+    }
+    car_p0_submit_frame_display(reinterpret_cast<CARSession*>(ptr),
+        static_cast<uint64_t>(textureHandle), width, height, rotation, isFront,
+        matPtr);
+}
+
+JNIEXPORT void JNICALL
 Java_dev_communityar_CommunityARPlugin_nativeSetTestMode(
         JNIEnv*, jobject, jlong ptr, jint mode) {
     car_p0_set_test_mode(reinterpret_cast<CARSession*>(ptr),

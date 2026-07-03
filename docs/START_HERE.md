@@ -16,10 +16,15 @@ now builds and runs.
 - ✅ **Compiles:** all 25 platform-agnostic C++ TUs + the Android GLES/JNI layer.
 - ✅ **Builds & runs:** `flutter build apk --debug` produces an installable APK;
   the app launches and requests camera permission.
-- ⛔ **Camera preview is black.** The Android GL/EGL render pipeline is unbuilt
-  (no EGL context, no window-surface presentation, cross-context OES handle,
-  `sampler2D` used for an external-OES texture). **This is the current blocker to
-  any visible output.**
+- 🟡 **Android GL/EGL pipeline is now built (Option A), but not runtime-verified.**
+  Kotlin owns a GL render thread + EGL context + a window surface from the Flutter
+  `SurfaceTexture`; the camera OES texture lives on that context; each frame
+  renders into fbo 0 with a `samplerExternalOES` shader + UV transform and
+  presents via `eglSwapBuffers` (`GlRenderPipeline.kt` + native display path).
+  Compiles & links; **the on-device verification checklist
+  ([`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md) §5) has NOT been run**
+  — no device/GPU/camera in the dev env. Orientation/mirror + display sizing still
+  need on-device tuning. **This is the next thing to verify on hardware.**
 - ⛔ **AR features (effects/perception) aren't wired to the platform.** The Kotlin
   method channel handles only Phase 0 methods; no Phase 2/3 JNI; the render loop
   never calls `renderFramePhase2()`; TFLite/models aren't set up.
@@ -47,9 +52,12 @@ now builds and runs.
 
 ## What to pick up next (priority order)
 
-1. **Android GL/EGL pipeline → visible camera.** Follow
-   `ANDROID_RENDER_PIPELINE.md`. This gates *all* visible output (even the plain
-   Phase 0 test shaders). It's a dedicated on-device, write→test→fix effort.
+1. **Android GL/EGL pipeline → visible camera — VERIFY ON DEVICE.** The pipeline
+   is now *implemented* (Option A, `GlRenderPipeline.kt` + native display path);
+   what remains is walking the on-device checklist in `ANDROID_RENDER_PIPELINE.md`
+   §5 (context creates → frames arrive → `updateTexImage` → draw+swap → widget
+   shows live camera → orientation/mirror) and tuning the UV transform + display
+   sizing for real hardware. This still gates *all* visible output.
 2. **Phase 2/3 platform wiring** — Kotlin method-channel handlers + JNI for
    `car_p2_graph_set` / `car_p3_*` / the Phase 1 debug/stat/filter calls, and
    wire the render loop to `renderFramePhase2()`, so effects/perception run.

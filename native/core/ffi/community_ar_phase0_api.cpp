@@ -57,6 +57,24 @@ CAR_EXPORT CARStatus car_p0_submit_frame(CARSession* session,
     }
 }
 
+CAR_EXPORT CARStatus car_p0_submit_frame_display(CARSession* session,
+                                                 uint64_t cameraTextureHandle,
+                                                 int width,
+                                                 int height,
+                                                 int rotationDegrees,
+                                                 int isFrontFacing,
+                                                 const float* texMatrix16) {
+    auto* s = asSession(session);
+    if (!s) return CAR_STATUS_INVALID_HANDLE;
+    try {
+        return s->submitFrameToDisplay(cameraTextureHandle, width, height,
+                                       rotationDegrees, isFrontFacing != 0,
+                                       texMatrix16);
+    } catch (...) {
+        return CAR_STATUS_INTERNAL_ERROR;
+    }
+}
+
 CAR_EXPORT uint64_t car_p0_get_output_texture(CARSession* session) {
     auto* s = asSession(session);
     return s ? s->getOutputTexture() : 0;
