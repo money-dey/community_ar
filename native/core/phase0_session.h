@@ -78,6 +78,12 @@ public:
     RenderContext*       renderContext();
     NeuralBackend*       neuralBackend();
     EffectGraph&         effectGraph();
+
+    // Non-constructing peek at the installed-effect count. The effectGraph()
+    // accessor lazily constructs, which is only safe on the render thread;
+    // this is callable from any thread for diagnostics (returns 0 when no
+    // graph has ever been installed).
+    size_t               installedEffectCount() const;
     PerceptionPipeline&  perceptionPipeline();
     const TextureHandle& cameraOutputTexture();
     Framebuffer*         displayFramebuffer();

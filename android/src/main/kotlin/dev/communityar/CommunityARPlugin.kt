@@ -93,6 +93,21 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 "setZoom"          -> { setZoom(call.argument<Double>("zoom") ?: 1.0); result.success(null) }
                 "getMaxZoom"       -> result.success(getMaxZoom())
                 "getMinZoom"       -> result.success(getMinZoom())
+                // Effect graph (Phase 2 — AR_INTEGRATION_SPEC.md WP-C). The
+                // native side queues the swap onto the GL render thread, so
+                // calling from the platform thread here is safe.
+                "setEffectGraph"   -> {
+                    val st = setEffectGraph(call)
+                    if (st == 0) result.success(null)
+                    else result.error("CAR_ERROR",
+                        "setEffectGraph failed (status=$st)", null)
+                }
+                "clearEffectGraph" -> {
+                    if (nativeSessionPtr != 0L) nativeClearEffectGraph(nativeSessionPtr)
+                    result.success(null)
+                }
+                "getEffectCount"   -> result.success(
+                    if (nativeSessionPtr != 0L) nativeGetEffectCount(nativeSessionPtr) else 0)
                 "outputTextureId"  -> result.success(surfaceEntry?.id() ?: -1)
                 "outputDimensions" -> result.success(getOutputDimensions())
                 "getStats"         -> result.success(getStats())
@@ -194,6 +209,20 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private fun switchCamera(lens: String) {
         cameraStream?.stop()
         startCamera(lens)
+    }
+
+    // -------------------------------------------------------------------------
+    // Effect graph — unpack the Dart-serialized parallel arrays (typeIds +
+    // per-effect config byte blobs) and hand them to native. Returns the
+    // CARStatus (0 = OK; 2 = invalid session; 3 = invalid argument).
+    // -------------------------------------------------------------------------
+    private fun setEffectGraph(call: MethodCall): Int {
+        if (nativeSessionPtr == 0L) return 2
+        val typeIds = call.argument<List<Int>>("typeIds") ?: return 3
+        val configs = call.argument<List<ByteArray>>("configs") ?: return 3
+        if (typeIds.isEmpty() || typeIds.size != configs.size) return 3
+        return nativeSetEffectGraph(
+            nativeSessionPtr, typeIds.toIntArray(), configs.toTypedArray())
     }
 
     // Stop Camera2 but keep the GL pipeline + native session alive (app
@@ -314,6 +343,11 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                                              width: Int, height: Int,
                                              texMatrix: FloatArray,
                                              timestampNs: Long)
+    // Effect graph (Phase 2 C ABI). All return CARStatus/count as Int.
+    private external fun nativeSetEffectGraph(ptr: Long, typeIds: IntArray,
+                                              configs: Array<ByteArray>): Int
+    private external fun nativeClearEffectGraph(ptr: Long): Int
+    private external fun nativeGetEffectCount(ptr: Long): Int
     private external fun nativeSetTestMode(ptr: Long, mode: Int)
     private external fun nativeGetOutputDimensions(ptr: Long, out: IntArray)
     private external fun nativeGetStats(ptr: Long): FloatArray

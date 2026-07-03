@@ -81,6 +81,12 @@ EffectGraph& Phase0Session::effectGraph() {
     return *p2_->effectGraph;
 }
 
+size_t Phase0Session::installedEffectCount() const {
+    // Pointer-check only — never construct from here (this is callable from
+    // the platform thread; construction belongs to the render thread).
+    return p2_->effectGraph ? p2_->effectGraph->effectCount() : 0;
+}
+
 PerceptionPipeline& Phase0Session::perceptionPipeline() {
     if (!p2_->perceptionPipeline) {
         PerceptionConfig pcfg;
