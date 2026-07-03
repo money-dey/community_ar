@@ -4,6 +4,13 @@
 #
 # Run from the project root:  bash tools/fetch_models.sh
 #
+# Windows/Git-Bash note: if curl fails with "schannel ... CRYPT_E_NO_
+# REVOCATION_CHECK", the machine can't reach the CA revocation endpoints.
+# Workaround that keeps certificate-chain validation on (skips only the
+# revocation lookup):
+#   echo "ssl-no-revoke" > /tmp/curlhome/.curlrc
+#   CURL_HOME=/tmp/curlhome bash tools/fetch_models.sh
+#
 # Downloads:
 #   1. face_landmarker.task (bundle: BlazeFace + FaceMesh + Blendshapes)
 #   2. iris_landmark.tflite (legacy MediaPipe Solutions — Iris isn't in Tasks)
@@ -45,10 +52,14 @@ rm -rf _task_extracted face_landmarker.task
 
 # -----------------------------------------------------------------------------
 # 2. Iris landmark — legacy MediaPipe Solutions (not yet in Tasks)
+#
+# NOTE: the old GitHub raw URL (mediapipe/modules/iris_landmark/... on master)
+# now 404s — the legacy modules were removed from the repo. Google hosts the
+# same file in the mediapipe-assets bucket.
 # -----------------------------------------------------------------------------
-echo "==> Downloading iris_landmark.tflite (from legacy MediaPipe)"
+echo "==> Downloading iris_landmark.tflite (mediapipe-assets bucket)"
 curl -fL --retry 3 -o iris_landmark.tflite \
-  "https://github.com/google-ai-edge/mediapipe/raw/master/mediapipe/modules/iris_landmark/iris_landmark.tflite"
+  "https://storage.googleapis.com/mediapipe-assets/iris_landmark.tflite"
 
 # -----------------------------------------------------------------------------
 # 3. Hair segmenter

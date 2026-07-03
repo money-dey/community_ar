@@ -34,6 +34,26 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-03
 
+
+### WP-A (models half) — MediaPipe models fetched; fetch script repaired
+- **Change:** all 6 MediaPipe models are now fetched locally into
+  `native/models/` (~7.1 MB, under the 15 MB budget; all verified `TFL3`
+  flatbuffers): face_detector, face_landmarker, face_blendshapes (extracted from
+  the `.task` bundle), iris_landmark, hair_segmenter, selfie_segmenter. Fixed
+  `tools/fetch_models.sh`: the iris model's GitHub-raw URL 404s (legacy modules
+  removed from `master`) → now the `mediapipe-assets` bucket. Added a header
+  note for the Windows/Git-Bash schannel `CRYPT_E_NO_REVOCATION_CHECK` failure
+  (workaround: `ssl-no-revoke` via a temp `CURL_HOME`, which keeps chain
+  validation on). Gitignored `native/models/*` artifacts (fetch-on-demand by
+  design; binaries don't belong in git).
+- **Remaining WP-A:** TFLite `.so` vendoring still needs Bazel (not present in
+  this env) — per-ABI build commands are printed by `tools/fetch_tflite.sh`;
+  then asset bundling/first-launch extraction + `modelDirectory` plumbing
+  (compile-verifiable here once started).
+- **Verification:** models downloaded + magic-checked locally; script change is
+  the same URL that was verified working. Model *loading* is untestable until
+  TFLite is vendored.
+
 ### WP-C — effect-graph method channel: setEffectGraph → car_p2_graph_set
 - **Change:** implemented `AR_INTEGRATION_SPEC.md` WP-C. Kotlin now handles
   `setEffectGraph` (unpacks the Dart parallel arrays — `List<Int>` typeIds +
@@ -55,6 +75,7 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
   escape hatch.
 - **Verification:** NDK clang on 3 changed TUs + `flutter build apk --debug`.
   Not runtime-verified.
+
 
 ### WP-B — AR render path: camera ingress + renderFramePhase2 + present-blit
 - **Change:** implemented `AR_INTEGRATION_SPEC.md` WP-B. New C ABI symbol

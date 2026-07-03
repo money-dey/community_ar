@@ -36,3 +36,8 @@ migrate_working_dir/
 # Large / machine-built — not committed; only the README is tracked.
 /third_party/tensorflow-lite/include/
 /third_party/tensorflow-lite/lib/
+
+# MediaPipe models — fetched on demand via tools/fetch_models.sh, not committed
+native/models/*.tflite
+native/models/*.task
+native/models/_task_extracted/
