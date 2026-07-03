@@ -61,20 +61,25 @@ now builds and runs.
 
 ## What to pick up next (priority order)
 
-1. **Android GL/EGL pipeline → visible camera — VERIFY ON DEVICE.** The pipeline
-   is now *implemented* (Option A, `GlRenderPipeline.kt` + native display path);
-   what remains is walking the on-device checklist in `ANDROID_RENDER_PIPELINE.md`
-   §5 (context creates → frames arrive → `updateTexImage` → draw+swap → widget
-   shows live camera → orientation/mirror) and tuning the UV transform + display
-   sizing for real hardware. This still gates *all* visible output.
-2. **Phase 2/3 platform wiring** — Kotlin method-channel handlers + JNI for
-   `car_p2_graph_set` / `car_p3_*` / the Phase 1 debug/stat/filter calls, and
-   wire the render loop to `renderFramePhase2()`, so effects/perception run.
-3. **TFLite + models** — vendor TFLite (`tools/fetch_tflite.sh` +
-   `third_party/tensorflow-lite/README.md`), bundle/extract the MediaPipe models
-   (`tools/fetch_models.sh`), and plumb the model directory into `BackendConfig`.
+0. ✅ **Android GL/EGL pipeline → visible camera — DONE & verified on-device**
+   (PRs #22–#25): live, upright, un-mirrored, zoomable, resumes after background.
 
-Each is its own device-iteration loop; do them in order (nothing later is
+1. **AR feature integration (Phases 0–3) → see
+   [`AR_INTEGRATION_SPEC.md`](AR_INTEGRATION_SPEC.md).** The full plan: inventory
+   of every perception/effect feature, the render-loop integration architecture
+   (OES→2D ingress, `renderFramePhase2` + present-blit, model-dir plumbing), and
+   ordered work packages **WP-A…WP-E** (TFLite+models → render loop → effect graph
+   → beauty → perception diagnostics), each implementation-ready with acceptance
+   criteria. This is the spec to hand an implementer.
+
+   The old summary of the same work, for reference:
+   - **TFLite + models** (WP-A) — vendor TFLite (`tools/fetch_tflite.sh`), bundle/
+     extract models (`tools/fetch_models.sh`), plumb `modelDirectory`.
+   - **Phase 2/3 platform wiring** (WP-C/D) — Kotlin handlers + JNI for
+     `car_p2_graph_set` / `car_p3_*` / Phase 1 calls; render loop →
+     `renderFramePhase2()`.
+
+Each WP is its own device-iteration loop; do them in order (nothing later is
 testable until #1 works).
 
 ---
