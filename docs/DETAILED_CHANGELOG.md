@@ -34,6 +34,19 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-03
 
+### Zoom — allow deeper zoom-out (below 1.0×)
+- **Change:** expose the camera's minimum zoom (`getMinZoom`) and clamp the pinch
+  to `[minZoom, maxZoom]` instead of `[1.0, maxZoom]`. On hardware-zoom devices
+  with an ultra-wide lens, `CONTROL_ZOOM_RATIO_RANGE.lower` is < 1.0 (~0.5–0.6),
+  so the preview can now zoom out to the wider field of view.
+- **Why / scope:** the digital fallback stays floored at 1.0 — there is no image
+  data beyond the sensor's full frame, so sub-1.0 digital zoom would only smear
+  edges. "Deeper zoom out" is therefore a hardware-only capability, surfaced
+  through the same single `setZoom()`/range API.
+- **Verification:** `dart analyze` (no new issues) + `flutter build apk --debug`.
+  The actual sub-1.0 range depends on the device's lens; only confirmable on an
+  ultra-wide-capable device.
+
 ### Render-pipeline ownership ADR + iOS pipeline guide (docs)
 - **Change:** added `docs/RENDER_PIPELINE_OWNERSHIP.md` (why the platform layer,
   not C++, owns the GPU context + presentation surface — an ADR with the reframe,

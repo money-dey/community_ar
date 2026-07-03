@@ -87,7 +87,14 @@ class CommunityARPhase0FFI {
     return z ?? 1.0;
   }
 
-  /// Set the zoom factor (>=1). Routed to hardware zoom where available, else a
+  /// Minimum supported zoom factor. Below 1.0 on hardware-zoom devices with an
+  /// ultra-wide lens (a wider-than-default field of view); 1.0 otherwise.
+  static Future<double> getMinZoom() async {
+    final z = await _channel.invokeMethod<double>('getMinZoom');
+    return z ?? 1.0;
+  }
+
+  /// Set the zoom factor. Routed to hardware zoom where available, else a
   /// digital crop in the render pipeline. Values are clamped natively.
   static Future<void> setZoom(double zoom) async {
     await _channel.invokeMethod('setZoom', {'zoom': zoom});

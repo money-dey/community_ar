@@ -91,6 +91,7 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 "setTestMode"      -> { setTestMode(call.argument("mode") ?: 0); result.success(null) }
                 "setZoom"          -> { setZoom(call.argument<Double>("zoom") ?: 1.0); result.success(null) }
                 "getMaxZoom"       -> result.success(getMaxZoom())
+                "getMinZoom"       -> result.success(getMinZoom())
                 "outputTextureId"  -> result.success(surfaceEntry?.id() ?: -1)
                 "outputDimensions" -> result.success(getOutputDimensions())
                 "getStats"         -> result.success(getStats())
@@ -178,6 +179,15 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         val cs = cameraStream
         return if (cs != null && cs.supportsHardwareZoom) cs.maxZoom.toDouble()
                else DIGITAL_MAX_ZOOM
+    }
+
+    // Minimum zoom. Below 1.0 only on hardware-zoom devices with an ultra-wide
+    // lens (that's the "deeper zoom out"). Digital zoom can't go below 1.0 —
+    // there's no image beyond the sensor's full frame — so it floors at 1.0.
+    private fun getMinZoom(): Double {
+        val cs = cameraStream
+        return if (cs != null && cs.supportsHardwareZoom) cs.minZoom.toDouble()
+               else 1.0
     }
 
     private fun switchCamera(lens: String) {
