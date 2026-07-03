@@ -12,7 +12,11 @@
 // Lifecycle:
 //   - initState   → createSession + startCamera
 //   - dispose     → dispose
-//   - app pause   → stop camera (NOT implemented in Phase 0; later phase)
+//   - app pause   → stop the camera (release it for other apps)
+//   - app resume  → restart the camera (the EGL pipeline + session survive
+//                   backgrounding; only Camera2 is torn down/reopened). Without
+//                   this the preview stays frozen on the last frame after the
+//                   OS disconnects the camera while backgrounded.
 // =============================================================================
 
 import 'package:flutter/material.dart';
@@ -39,11 +43,18 @@ class CommunityARPhase0View extends StatefulWidget {
   State<CommunityARPhase0View> createState() => _CommunityARPhase0ViewState();
 }
 
-class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
+class _CommunityARPhase0ViewState extends State<CommunityARPhase0View>
+    with WidgetsBindingObserver {
   int? _textureId;
   int _width = 0;
   int _height = 0;
   String? _error;
+
+  // App-lifecycle state. `_sessionReady` gates lifecycle handling until the
+  // initial createSession+startCamera has run; `_cameraPaused` tracks whether we
+  // stopped the camera on background so resume restarts exactly once.
+  bool _sessionReady = false;
+  bool _cameraPaused = false;
 
   // Pinch-to-zoom state. `_minZoom`/`_maxZoom` are the active camera's range
   // (hardware range when supported — `_minZoom` can be < 1.0 on ultra-wide
@@ -54,19 +65,22 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
   double _zoom = 1.0;
   double _baseZoom = 1.0;
 
+  String get _lensName =>
+      widget.camera == Phase0CameraLens.front ? 'front' : 'back';
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
   }
 
   Future<void> _init() async {
     try {
       await CommunityARPhase0FFI.createSession();
-      await CommunityARPhase0FFI.startCamera(
-        lens: widget.camera == Phase0CameraLens.front ? 'front' : 'back',
-      );
+      await CommunityARPhase0FFI.startCamera(lens: _lensName);
       await CommunityARPhase0FFI.setTestMode(widget.testMode);
+      _sessionReady = true;
       _maxZoom = await CommunityARPhase0FFI.getMaxZoom();
       _minZoom = await CommunityARPhase0FFI.getMinZoom();
 
@@ -100,9 +114,7 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
       CommunityARPhase0FFI.setTestMode(widget.testMode);
     }
     if (oldWidget.camera != widget.camera) {
-      CommunityARPhase0FFI.switchCamera(
-        lens: widget.camera == Phase0CameraLens.front ? 'front' : 'back',
-      );
+      CommunityARPhase0FFI.switchCamera(lens: _lensName);
       // New camera → reset zoom and refresh its range (backend/range differ).
       _zoom = 1.0;
       _refreshZoomRange();
@@ -115,6 +127,33 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
     if (mounted) {
       _maxZoom = maxZ;
       _minZoom = minZ;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // App lifecycle: release the camera on background, restart it on resume so the
+  // preview doesn't stay frozen on the last frame after the OS disconnects the
+  // camera. The native session + GL/EGL pipeline persist across background, so
+  // only Camera2 is stopped/reopened (the Flutter texture id is unchanged).
+  // --------------------------------------------------------------------------
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_sessionReady) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        if (_cameraPaused) {
+          _cameraPaused = false;
+          _zoom = 1.0; // a fresh camera stream starts un-zoomed
+          CommunityARPhase0FFI.startCamera(lens: _lensName);
+        }
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        if (!_cameraPaused) {
+          _cameraPaused = true;
+          CommunityARPhase0FFI.stopCamera();
+        }
     }
   }
 
@@ -132,6 +171,7 @@ class _CommunityARPhase0ViewState extends State<CommunityARPhase0View> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     CommunityARPhase0FFI.dispose();
     super.dispose();
   }

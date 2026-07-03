@@ -34,6 +34,27 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-03
 
+### Camera lifecycle — resume live preview after backgrounding
+- **Symptom:** leaving the app and returning left the preview frozen on the last
+  frame. Cause: on background the OS disconnects Camera2 (our `onDisconnected`/
+  `onError` just closes it) and nothing restarted it on resume, so the Flutter
+  `Texture` kept showing the last swapped buffer.
+- **Change:** `CommunityARPhase0View` now observes the app lifecycle
+  (`WidgetsBindingObserver`): stop the camera on pause/inactive/hidden/detached,
+  restart it on resume. New lightweight `stopCamera` method-channel call +
+  `CommunityARPlugin.stopCamera()` that tears down only Camera2.
+- **Why this shape:** the GL/EGL pipeline, native session, and the Flutter
+  `SurfaceTexture` all survive backgrounding, so only Camera2 needs to be
+  released/reopened — the texture id and pipeline are untouched, so resume just
+  re-points a fresh capture at the same pipeline surface. Also releases the
+  camera for other apps while backgrounded (good citizenship). Zoom resets to
+  1.0 on resume (a fresh capture request starts un-zoomed).
+- **Verification:** `dart analyze` (no new issues) + `flutter build apk --debug`.
+  The background/resume behaviour itself is **only confirmable on-device**. If a
+  device also invalidates the Flutter `SurfaceTexture`/EGL surface on background
+  (resume shows black rather than frozen), a surface-recreate step would be the
+  follow-up — not implemented since the reported symptom is a stale frame.
+
 ### Zoom — allow deeper zoom-out (below 1.0×)
 - **Change:** expose the camera's minimum zoom (`getMinZoom`) and clamp the pinch
   to `[minZoom, maxZoom]` instead of `[1.0, maxZoom]`. On hardware-zoom devices
