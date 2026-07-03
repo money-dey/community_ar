@@ -1,17 +1,19 @@
 // CameraStream.kt
 // =============================================================================
-// Camera2 wrapper that delivers camera frames as OES external GL textures.
+// Camera2 wrapper. Opens the requested lens and points a repeating preview
+// request at a caller-provided Surface.
 //
-// Architecture:
-//   1. Allocate a SurfaceTexture (OES external) — this is the GL texture
-//      the camera will write into directly, with zero CPU copy
-//   2. Open Camera2 and configure it to output to this SurfaceTexture
-//   3. On each frame, SurfaceTexture.OnFrameAvailableListener fires; we
-//      updateTexImage() (releases the camera frame to the texture) and
-//      invoke the callback with the texture name
-//   4. The callback passes the texture name to native code which renders it
+// Under "Option A" (docs/ANDROID_RENDER_PIPELINE.md) the camera's OES texture,
+// its SurfaceTexture, and all GL live in GlRenderPipeline on the GL render
+// thread. This class no longer creates any GL objects — it only drives Camera2
+// and reports the sensor orientation. That keeps every GL call on the one
+// thread that owns the EGL context (the old code created the OES texture here
+// with no current context, which was a no-op and part of why the preview was
+// black).
 //
-// This entire pipeline keeps pixel data on the GPU at all times.
+// Camera2 device/session state callbacks run on this class's own camera thread;
+// frame *delivery* is handled by the SurfaceTexture.OnFrameAvailableListener
+// that GlRenderPipeline registers on the GL thread.
 // =============================================================================
 
 package dev.communityar
@@ -19,38 +21,29 @@ package dev.communityar
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
-import android.opengl.*
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
-import android.util.Size
 import android.view.Surface
 import androidx.core.content.ContextCompat
 
 class CameraStream(
     private val context: Context,
     private val isFront: Boolean,
-    private val onFrame: (textureName: Int, width: Int, height: Int, rotation: Int) -> Unit,
+    private val targetSurface: Surface,
+    // Reports SENSOR_ORIENTATION once the camera is chosen, so the render layer
+    // can build the correct UV transform.
+    private val onSensorOrientation: (Int) -> Unit,
 ) {
     companion object {
         private const val TAG = "CommunityARCameraStream"
-        private const val TARGET_WIDTH = 1280
-        private const val TARGET_HEIGHT = 720
     }
 
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
-    private var surfaceTexture: SurfaceTexture? = null
-    private var surface: Surface? = null
     private var cameraThread: HandlerThread? = null
     private var cameraHandler: Handler? = null
-
-    // OES texture name. Allocated by us using GLES, written to by the camera.
-    private var oesTextureName: Int = 0
-
-    private var cameraRotation: Int = 0
 
     fun start() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
@@ -58,26 +51,8 @@ class CameraStream(
             Log.e(TAG, "CAMERA permission not granted")
             return
         }
-
         cameraThread = HandlerThread("CommunityAR-Camera").apply { start() }
         cameraHandler = Handler(cameraThread!!.looper)
-
-        // Create OES texture using EGL/GLES (must be done on a thread with a
-        // current GL context; the host plugin should set one up first).
-        oesTextureName = createOesTexture()
-        surfaceTexture = SurfaceTexture(oesTextureName).apply {
-            setDefaultBufferSize(TARGET_WIDTH, TARGET_HEIGHT)
-            setOnFrameAvailableListener({ st ->
-                try {
-                    st.updateTexImage()
-                    onFrame(oesTextureName, TARGET_WIDTH, TARGET_HEIGHT, cameraRotation)
-                } catch (e: Throwable) {
-                    Log.e(TAG, "Frame delivery failed", e)
-                }
-            }, cameraHandler)
-        }
-        surface = Surface(surfaceTexture)
-
         openCamera()
     }
 
@@ -86,17 +61,8 @@ class CameraStream(
         captureSession = null
         cameraDevice?.close()
         cameraDevice = null
-        surface?.release()
-        surface = null
-        surfaceTexture?.release()
-        surfaceTexture = null
-        if (oesTextureName != 0) {
-            val tex = IntArray(1) { oesTextureName }
-            GLES20.glDeleteTextures(1, tex, 0)
-            oesTextureName = 0
-        }
         cameraThread?.quitSafely()
-        cameraThread?.join()
+        try { cameraThread?.join(1000) } catch (_: InterruptedException) {}
         cameraThread = null
         cameraHandler = null
     }
@@ -117,7 +83,7 @@ class CameraStream(
         }
 
         val chars = manager.getCameraCharacteristics(cameraId)
-        cameraRotation = chars[CameraCharacteristics.SENSOR_ORIENTATION] ?: 0
+        onSensorOrientation(chars[CameraCharacteristics.SENSOR_ORIENTATION] ?: 0)
 
         try {
             manager.openCamera(cameraId, object : CameraDevice.StateCallback() {
@@ -137,7 +103,6 @@ class CameraStream(
 
     private fun createCaptureSession() {
         val device = cameraDevice ?: return
-        val targetSurface = surface ?: return
         device.createCaptureSession(
             listOf(targetSurface),
             object : CameraCaptureSession.StateCallback() {
@@ -154,23 +119,5 @@ class CameraStream(
                     Log.e(TAG, "Capture session config failed")
                 }
             }, cameraHandler)
-    }
-
-    // -------------------------------------------------------------------------
-    // GL helpers
-    // -------------------------------------------------------------------------
-    private fun createOesTexture(): Int {
-        val tex = IntArray(1)
-        GLES20.glGenTextures(1, tex, 0)
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0])
-        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-            GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-            GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-            GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-            GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-        return tex[0]
     }
 }

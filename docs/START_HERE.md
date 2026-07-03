@@ -16,10 +16,15 @@ now builds and runs.
 - ✅ **Compiles:** all 25 platform-agnostic C++ TUs + the Android GLES/JNI layer.
 - ✅ **Builds & runs:** `flutter build apk --debug` produces an installable APK;
   the app launches and requests camera permission.
-- ⛔ **Camera preview is black.** The Android GL/EGL render pipeline is unbuilt
-  (no EGL context, no window-surface presentation, cross-context OES handle,
-  `sampler2D` used for an external-OES texture). **This is the current blocker to
-  any visible output.**
+- 🟡 **Android GL/EGL pipeline is now built (Option A), but not runtime-verified.**
+  Kotlin owns a GL render thread + EGL context + a window surface from the Flutter
+  `SurfaceTexture`; the camera OES texture lives on that context; each frame
+  renders into fbo 0 with a `samplerExternalOES` shader + UV transform and
+  presents via `eglSwapBuffers` (`GlRenderPipeline.kt` + native display path).
+  Compiles & links; **the on-device verification checklist
+  ([`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md) §5) has NOT been run**
+  — no device/GPU/camera in the dev env. Orientation/mirror + display sizing still
+  need on-device tuning. **This is the next thing to verify on hardware.**
 - ⛔ **AR features (effects/perception) aren't wired to the platform.** The Kotlin
   method channel handles only Phase 0 methods; no Phase 2/3 JNI; the render loop
   never calls `renderFramePhase2()`; TFLite/models aren't set up.
@@ -35,21 +40,33 @@ now builds and runs.
 1. **[`CONSOLIDATION_AND_BRINGUP.md`](CONSOLIDATION_AND_BRINGUP.md)** — the master
    status/log: what each PR did, the verification methodology + limits, current
    state, and the platform-integration gap. **The main status doc.**
-2. **[`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md)** — the
-   black-preview blocker: what's broken, target architecture (recommended:
-   Kotlin owns EGL), step-by-step plan + file touch points, and an ordered
-   on-device verification checklist.
-3. **[`../CLAUDE.md`](../CLAUDE.md)** — architectural invariants and the
+2. **[`RENDER_PIPELINE_OWNERSHIP.md`](RENDER_PIPELINE_OWNERSHIP.md)** — the
+   load-bearing decision behind the whole render layer: *who owns the GPU
+   context + presentation surface* (platform vs. C++), why **Option A (platform
+   owns it)** was chosen on both platforms, the challenges/tradeoffs hit
+   implementing it, and how to reverse it if needed. Read before touching the
+   pipeline on either platform.
+3. **[`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md)** — Android
+   GL/EGL: what was broken, the Option-A architecture (now implemented, PR #22),
+   file touch points, and the ordered on-device verification checklist.
+4. **[`IOS_RENDER_PIPELINE.md`](IOS_RENDER_PIPELINE.md)** — iOS Metal: the
+   analogous (still-unimplemented) black-preview gap, the pull-based Option-A
+   target architecture, plan + touch points, and an on-device checklist. Needs a
+   Mac; not verifiable in this dev env.
+5. **[`../CLAUDE.md`](../CLAUDE.md)** — architectural invariants and the
    "delta document" convention that caused the original non-compiling state.
-4. **[`CARRIED_FORWARD.md`](CARRIED_FORWARD.md)** — pre-existing deferred items.
+6. **[`CARRIED_FORWARD.md`](CARRIED_FORWARD.md)** — pre-existing deferred items.
 
 ---
 
 ## What to pick up next (priority order)
 
-1. **Android GL/EGL pipeline → visible camera.** Follow
-   `ANDROID_RENDER_PIPELINE.md`. This gates *all* visible output (even the plain
-   Phase 0 test shaders). It's a dedicated on-device, write→test→fix effort.
+1. **Android GL/EGL pipeline → visible camera — VERIFY ON DEVICE.** The pipeline
+   is now *implemented* (Option A, `GlRenderPipeline.kt` + native display path);
+   what remains is walking the on-device checklist in `ANDROID_RENDER_PIPELINE.md`
+   §5 (context creates → frames arrive → `updateTexImage` → draw+swap → widget
+   shows live camera → orientation/mirror) and tuning the UV transform + display
+   sizing for real hardware. This still gates *all* visible output.
 2. **Phase 2/3 platform wiring** — Kotlin method-channel handlers + JNI for
    `car_p2_graph_set` / `car_p3_*` / the Phase 1 debug/stat/filter calls, and
    wire the render loop to `renderFramePhase2()`, so effects/perception run.
