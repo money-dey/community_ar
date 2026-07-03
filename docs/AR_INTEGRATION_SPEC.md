@@ -174,6 +174,12 @@ opacity 0) still shows live camera; frame time logged.
 verify no double orientation (transform now at ingress, not present).
 
 ### WP-C — Phase 2 JNI + Kotlin: effect graph → LipsEffect end-to-end
+> **Status: IMPLEMENTED** (branch `feat/android-effect-graph-channel`) —
+> `setEffectGraph`/`clearEffectGraph`/`getEffectCount` handlers + JNI. Also made
+> `car_p2_graph_effect_count` a non-constructing peek (the lazy accessor was
+> only render-thread-safe). Compile/link-verified; the visual acceptance
+> (lipstick) still needs WP-A's models on-device.
+
 **Goal:** installing an `EffectGraph` from Dart makes lipstick appear.
 **Method-channel methods:** `setEffectGraph{typeIds,configs}`, `clearEffectGraph`,
 `getEffectCount`.

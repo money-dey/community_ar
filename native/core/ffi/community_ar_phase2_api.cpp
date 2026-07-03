@@ -131,9 +131,10 @@ CAR_EXPORT CARStatus car_p2_submit_frame_display(CARSession* session,
 CAR_EXPORT uint32_t car_p2_graph_effect_count(CARSession* session) {
     if (!session) return 0;
     auto* s = reinterpret_cast<Phase0Session*>(session);
-    // Read on whatever thread; the count is just an atomic.size() snapshot,
-    // OK to read without locks for diagnostics.
-    return static_cast<uint32_t>(s->effectGraph().effectCount());
+    // Non-constructing peek: the effectGraph() accessor lazily constructs,
+    // which is only render-thread-safe; this diagnostic is called from the
+    // platform channel thread. Snapshot read, OK without locks.
+    return static_cast<uint32_t>(s->installedEffectCount());
 }
 
 }  // extern "C"
