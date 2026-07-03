@@ -34,6 +34,29 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-03
 
+### AR feature integration spec (Phases 0–3) — docs
+- **Change:** added `docs/AR_INTEGRATION_SPEC.md` — an implementation-ready spec
+  for wiring the perception/effect features (which already compile in C++ and are
+  exposed in Dart) through the Android platform layer. Contains a feature
+  inventory table (phase → feature → Dart API → C ABI → model → status), the
+  integration architecture (OES→2D ingress, orientation/zoom at ingress,
+  `renderFramePhase2` + present-blit, model-directory plumbing), and ordered work
+  packages WP-A…WP-E each with files/interface/acceptance. START_HERE links it as
+  the next-work plan.
+- **Why:** the maintainer is handing implementation to another model and needs a
+  clean, self-contained spec. Grounded in the actual code: `car_p1/2/3_*` ABI,
+  the `renderFramePhase2` path (`cameraOutputTexture()` currently returns an
+  invalid handle; `neuralBackend()` has an empty `modelDirectory`), the 5 models
+  in `fetch_models.sh`, and the effect struct layouts (Lips 28 B / Beauty 60 B).
+- **Key finding recorded:** the render-loop reconciliation is the crux — the live
+  Option A pipeline presents fbo 0, but `renderFramePhase2` renders to the
+  offscreen `outputFbo_`; integration needs an OES→2D ingress (carrying the UV
+  transform so perception sees an upright frame) and a present-blit back to fbo 0,
+  via a new `car_p2_submit_frame_display` symbol (with a timestamp param for
+  One-Euro/perception). Dart→channel side is already done; work is Kotlin+JNI+
+  native-render+models.
+- **Verification:** docs only.
+
 ### Camera lifecycle — resume live preview after backgrounding
 - **Symptom:** leaving the app and returning left the preview frozen on the last
   frame. Cause: on background the OS disconnects Camera2 (our `onDisconnected`/
