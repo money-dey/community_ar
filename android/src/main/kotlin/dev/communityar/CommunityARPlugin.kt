@@ -88,6 +88,7 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 "createSession"    -> result.success(createSession())
                 "startCamera"      -> { startCamera(call.argument("lens") ?: "front"); result.success(null) }
                 "switchCamera"     -> { switchCamera(call.argument("lens") ?: "front"); result.success(null) }
+                "stopCamera"       -> { stopCamera(); result.success(null) }
                 "setTestMode"      -> { setTestMode(call.argument("mode") ?: 0); result.success(null) }
                 "setZoom"          -> { setZoom(call.argument<Double>("zoom") ?: 1.0); result.success(null) }
                 "getMaxZoom"       -> result.success(getMaxZoom())
@@ -193,6 +194,14 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private fun switchCamera(lens: String) {
         cameraStream?.stop()
         startCamera(lens)
+    }
+
+    // Stop Camera2 but keep the GL pipeline + native session alive (app
+    // background). The next startCamera reopens the camera into the same
+    // pipeline surface; the Flutter texture id is unchanged.
+    private fun stopCamera() {
+        cameraStream?.stop()
+        cameraStream = null
     }
 
     // -------------------------------------------------------------------------

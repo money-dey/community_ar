@@ -63,6 +63,13 @@ class CommunityARPhase0FFI {
     await _channel.invokeMethod('switchCamera', {'lens': lens});
   }
 
+  /// Stop the camera without tearing down the session/pipeline. Used on app
+  /// background; pair with [startCamera] on resume. Safe to call if already
+  /// stopped.
+  static Future<void> stopCamera() async {
+    await _channel.invokeMethod('stopCamera');
+  }
+
   static Future<int> getOutputTextureId() async {
     final id = await _channel.invokeMethod<int>('outputTextureId');
     return id ?? -1;
