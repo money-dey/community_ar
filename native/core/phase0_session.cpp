@@ -334,6 +334,114 @@ void Phase0Session::processFrameToDisplay(uint64_t cameraTexHandle,
 }
 
 // -----------------------------------------------------------------------------
+// Frame submission (AR path) — runs on the render thread
+//
+// This subsumes the Phase 0 display path: with no effect graph installed it
+// produces pixel-identical output (camera through the test-mode shader), so the
+// platform layer can call it unconditionally once it exists. See
+// docs/AR_INTEGRATION_SPEC.md §3 for the ingress/present design.
+// -----------------------------------------------------------------------------
+CARStatus Phase0Session::submitFrameAR(uint64_t cameraTextureHandle,
+                                       int width, int height,
+                                       const float* texMatrix16,
+                                       int64_t captureTimestampNs) {
+    if (!ctx_ || cameraTextureHandle == 0 || width <= 0 || height <= 0) {
+        return CAR_STATUS_INTERNAL_ERROR;
+    }
+
+    auto t0 = std::chrono::steady_clock::now();
+    processFrameAR(cameraTextureHandle, width, height, texMatrix16,
+                   captureTimestampNs);
+    auto t1 = std::chrono::steady_clock::now();
+
+    float frameMs = std::chrono::duration<float, std::milli>(t1 - t0).count();
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        avgFrameTimeMs_ = avgFrameTimeMs_ * 0.95f + frameMs * 0.05f;
+        framesProcessed_++;
+    }
+    return CAR_STATUS_OK;
+}
+
+void Phase0Session::ensureIngressFramebuffer(int w, int h) {
+    if (!ingressFbo_ || ingressFbo_->width() != w || ingressFbo_->height() != h) {
+        ingressFbo_ = ctx_->createFramebuffer(w, h, TextureHandle::Format::RGBA8);
+    }
+}
+
+void Phase0Session::processFrameAR(uint64_t cameraTexHandle, int w, int h,
+                                   const float* texMatrix16,
+                                   int64_t captureTimestampNs) {
+    static const float kIdentity[16] = {
+        1.f, 0.f, 0.f, 0.f,
+        0.f, 1.f, 0.f, 0.f,
+        0.f, 0.f, 1.f, 0.f,
+        0.f, 0.f, 0.f, 1.f,
+    };
+    const float* texMatrix = texMatrix16 ? texMatrix16 : kIdentity;
+
+    std::lock_guard<std::mutex> lock(outputMutex_);
+    outputWidth_ = w;
+    outputHeight_ = h;
+
+    // 1. Drain queued ABI work (graph swaps, perception-requirement updates)
+    //    BEFORE deciding which path runs, so a graph installed from the
+    //    platform thread takes effect on this very frame.
+    drainRenderQueue();
+
+    // 2. Camera ingress: OES → 2D, applying the UV transform exactly once.
+    //    Everything downstream — perception models, effect shaders, the present
+    //    blit — samples an upright, digitally-zoomed sampler2D frame. This is
+    //    the single place orientation is applied (double-applying would rotate
+    //    the image twice; see AR_INTEGRATION_SPEC.md §5).
+    ensureIngressFramebuffer(w, h);
+    TextureHandle cameraOes(cameraTexHandle, w, h,
+                            TextureHandle::Format::ExternalOES,
+                            TextureHandle::Ownership::Borrowed);
+    ctx_->bindFramebuffer(ingressFbo_.get());
+    ctx_->clearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    shaderOesPassthrough_->use();
+    shaderOesPassthrough_->setUniformMatrix4("uTexMatrix", texMatrix);
+    shaderOesPassthrough_->bindTexture("uTex", cameraOes, 0);
+    ctx_->drawFullscreenQuad(shaderOesPassthrough_.get());
+
+    // 3. Pointer-check the graph (don't use the effectGraph() accessor here —
+    //    it lazily constructs, and the empty-graph hot path shouldn't allocate
+    //    Phase 2 machinery that nothing has asked for yet).
+    const bool hasGraph = p2_->effectGraph && p2_->effectGraph->effectCount() > 0;
+
+    if (hasGraph) {
+        // 3a. Perception + effect graph render into the offscreen output FBO
+        //     (effects need it for ping-pong chaining).
+        ensureOutputFramebuffer(w, h);
+        renderFramePhase2(captureTimestampNs);
+
+        // 3b. Present: offscreen result → default framebuffer (the EGL window
+        //     surface). Kotlin swaps buffers after this returns.
+        ctx_->bindDisplayFramebuffer(w, h);
+        shaderPassthrough_->use();
+        shaderPassthrough_->bindTexture("uTex", outputFbo_->colorTexture(), 0);
+        ctx_->drawFullscreenQuad(shaderPassthrough_.get());
+    } else {
+        // 3c. No effects: present the ingress texture through the active
+        //     test-mode shader (the sampler2D variants — ingress is 2D now).
+        //     Pixel-identical to the Phase 0 display path.
+        ctx_->bindDisplayFramebuffer(w, h);
+        ShaderProgram* shader = shaderPassthrough_.get();
+        switch (testMode_.load()) {
+            case CAR_TEST_MODE_PASSTHROUGH: shader = shaderPassthrough_.get(); break;
+            case CAR_TEST_MODE_GRAYSCALE:   shader = shaderGrayscale_.get();   break;
+            case CAR_TEST_MODE_INVERT:      shader = shaderInvert_.get();      break;
+            case CAR_TEST_MODE_VIGNETTE:    shader = shaderVignette_.get();    break;
+        }
+        shader->use();
+        shader->bindTexture("uTex", ingressFbo_->colorTexture(), 0);
+        ctx_->drawFullscreenQuad(shader);
+    }
+    ctx_->flush();
+}
+
+// -----------------------------------------------------------------------------
 // Output access — any thread
 // -----------------------------------------------------------------------------
 uint64_t Phase0Session::getOutputTexture() const {

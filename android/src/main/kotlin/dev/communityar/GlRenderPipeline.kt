@@ -49,9 +49,14 @@ class GlRenderPipeline(
     // context current — nativeCreateSession/destroy issue GL calls (VAO/VBO/
     // shader create+delete) that require it.
     private val nativeCreateSession: (SurfaceTexture) -> Long,
-    private val nativeSubmitFrameDisplay:
-        (ptr: Long, tex: Int, w: Int, h: Int, rotation: Int, isFront: Int,
-         texMatrix: FloatArray) -> Unit,
+    // AR submit (docs/AR_INTEGRATION_SPEC.md WP-B): ingress + perception +
+    // effects + present when a graph is installed; pixel-identical Phase 0
+    // camera-through-test-shader when not. Orientation/mirror/zoom ride in the
+    // texMatrix; timestampNs is the SurfaceTexture frame timestamp (consumed by
+    // perception and the One-Euro landmark filters).
+    private val nativeSubmitFrameAr:
+        (ptr: Long, tex: Int, w: Int, h: Int, texMatrix: FloatArray,
+         timestampNs: Long) -> Unit,
     private val nativeDestroySession: (ptr: Long) -> Unit,
 ) {
     companion object {
@@ -270,9 +275,9 @@ class GlRenderPipeline(
                     "st=[${stMatrix.joinToString(",")}]")
             }
             val m = computeUvTransform(stMatrix, isFront)
-            nativeSubmitFrameDisplay(
-                ptr, cameraTexId, displayWidth, displayHeight,
-                cameraRotation, if (isFront) 1 else 0, m)
+            nativeSubmitFrameAr(
+                ptr, cameraTexId, displayWidth, displayHeight, m,
+                st.timestamp)
             // Present into the Flutter texture; its raster thread composites it.
             EGL14.eglSwapBuffers(eglDisplay, windowSurface)
         } catch (e: Throwable) {

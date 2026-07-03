@@ -45,6 +45,23 @@ public:
                                    bool isFrontFacing,
                                    const float* texMatrix16);
 
+    // AR display path (WP-B, docs/AR_INTEGRATION_SPEC.md §3). Per frame:
+    //   1. drain the render queue (graph installs take effect this frame)
+    //   2. ingress-copy the camera OES texture into a 2D texture, applying
+    //      `texMatrix16` — so perception + effects see an upright, zoomed frame
+    //      and sample plain sampler2D (cameraOutputTexture() returns it)
+    //   3. graph installed → renderFramePhase2() into the offscreen output FBO,
+    //      then blit that to the default framebuffer (the window surface);
+    //      graph empty → present the ingress texture through the Phase 0
+    //      test-mode shader (preserves Phase 0 behaviour exactly)
+    // The caller (Kotlin GL thread) presents with eglSwapBuffers afterwards.
+    // `captureTimestampNs` is the SurfaceTexture frame timestamp, consumed by
+    // perception + the One-Euro filters. Render thread only.
+    CARStatus submitFrameAR(uint64_t cameraTextureHandle,
+                            int width, int height,
+                            const float* texMatrix16,
+                            int64_t captureTimestampNs);
+
     // Called from any thread; just returns the handle
     uint64_t getOutputTexture() const;
     void     getOutputDimensions(int* outW, int* outH) const;
@@ -80,12 +97,20 @@ private:
     void processFrameToDisplay(uint64_t cameraTexHandle, int w, int h,
                                int rotation, bool isFrontFacing,
                                const float* texMatrix16);
+    void processFrameAR(uint64_t cameraTexHandle, int w, int h,
+                        const float* texMatrix16, int64_t captureTimestampNs);
 
     void ensureOutputFramebuffer(int w, int h);
+    void ensureIngressFramebuffer(int w, int h);
     void ensureShaders();
 
     std::unique_ptr<RenderContext> ctx_;
     std::unique_ptr<Framebuffer>   outputFbo_;
+
+    // Camera ingress target (WP-B): the OES camera frame is copied here each
+    // frame with the UV transform applied; its color texture is what
+    // cameraOutputTexture() hands to perception + the effect graph.
+    std::unique_ptr<Framebuffer>   ingressFbo_;
     int outputWidth_ = 0;
     int outputHeight_ = 0;
 

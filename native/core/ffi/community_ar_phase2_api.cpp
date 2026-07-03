@@ -112,6 +112,22 @@ CAR_EXPORT CARStatus car_p2_graph_clear(CARSession* session) {
     return CAR_STATUS_OK;
 }
 
+CAR_EXPORT CARStatus car_p2_submit_frame_display(CARSession* session,
+                                                 uint64_t cameraTextureHandle,
+                                                 int width,
+                                                 int height,
+                                                 const float* texMatrix16,
+                                                 int64_t timestampNs) {
+    if (!session) return CAR_STATUS_INVALID_SESSION;
+    auto* s = reinterpret_cast<Phase0Session*>(session);
+    try {
+        return s->submitFrameAR(cameraTextureHandle, width, height,
+                                texMatrix16, timestampNs);
+    } catch (...) {
+        return CAR_STATUS_INTERNAL_ERROR;
+    }
+}
+
 CAR_EXPORT uint32_t car_p2_graph_effect_count(CARSession* session) {
     if (!session) return 0;
     auto* s = reinterpret_cast<Phase0Session*>(session);

@@ -150,6 +150,11 @@ device, one model `loadModel()` succeeds (log the tensor shapes).
 sidestep that, but must be built on a machine with network).
 
 ### WP-B — Render-loop integration (ingress + present) *(gating for all visible AR)*
+> **Status: IMPLEMENTED** (branch `feat/android-ar-render-path`) — chose §3(c)
+> option 1: new `car_p2_submit_frame_display` symbol; Kotlin now calls it
+> unconditionally (`nativeSubmitFrameAr`), passing `SurfaceTexture.timestamp`.
+> Compile/link-verified; on-device acceptance below still pending.
+
 **Goal:** with an empty graph, AR path presents identical live camera; with a
 graph, it runs perception + effects and presents them.
 **Files:** `native/core/phase0_session.{h,cpp}` (ingress pass + present blit +

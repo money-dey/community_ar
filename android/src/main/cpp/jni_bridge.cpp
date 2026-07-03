@@ -7,7 +7,7 @@
 
 #include <jni.h>
 #include <EGL/egl.h>
-#include "community_ar_phase0_api.h"
+#include "community_ar_phase2_api.h"  // includes phase 0 + 1
 
 extern "C" {
 
@@ -62,6 +62,25 @@ Java_dev_communityar_CommunityARPlugin_nativeSubmitFrameDisplay(
     car_p0_submit_frame_display(reinterpret_cast<CARSession*>(ptr),
         static_cast<uint64_t>(textureHandle), width, height, rotation, isFront,
         matPtr);
+}
+
+JNIEXPORT void JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeSubmitFrameAr(
+        JNIEnv* env, jobject, jlong ptr,
+        jlong textureHandle, jint width, jint height,
+        jfloatArray texMatrix, jlong timestampNs) {
+    // AR display path (docs/AR_INTEGRATION_SPEC.md WP-B): ingress + perception
+    // + effect graph + present. Same matrix marshalling convention as
+    // nativeSubmitFrameDisplay; null/short array = identity.
+    float mat[16];
+    const float* matPtr = nullptr;
+    if (texMatrix != nullptr && env->GetArrayLength(texMatrix) >= 16) {
+        env->GetFloatArrayRegion(texMatrix, 0, 16, mat);
+        matPtr = mat;
+    }
+    car_p2_submit_frame_display(reinterpret_cast<CARSession*>(ptr),
+        static_cast<uint64_t>(textureHandle), width, height, matPtr,
+        static_cast<int64_t>(timestampNs));
 }
 
 JNIEXPORT void JNICALL
