@@ -57,7 +57,11 @@ class CameraStream(
         private set
     var maxZoom: Float = 1f
         private set
-    private var minZoom: Float = 1f
+    // Minimum hardware zoom ratio. On devices with an ultra-wide lens this is
+    // BELOW 1.0 (e.g. ~0.5–0.6), which is what lets the preview zoom out wider
+    // than the default field of view.
+    var minZoom: Float = 1f
+        private set
     private var pendingZoom: Float = 1f
 
     fun start() {
