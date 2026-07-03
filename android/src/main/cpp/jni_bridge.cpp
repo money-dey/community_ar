@@ -7,6 +7,7 @@
 
 #include <jni.h>
 #include <EGL/egl.h>
+#include <vector>
 #include "community_ar_phase2_api.h"  // includes phase 0 + 1
 
 extern "C" {
@@ -81,6 +82,67 @@ Java_dev_communityar_CommunityARPlugin_nativeSubmitFrameAr(
     car_p2_submit_frame_display(reinterpret_cast<CARSession*>(ptr),
         static_cast<uint64_t>(textureHandle), width, height, matPtr,
         static_cast<int64_t>(timestampNs));
+}
+
+// -----------------------------------------------------------------------------
+// Effect graph (Phase 2 — docs/AR_INTEGRATION_SPEC.md WP-C)
+//
+// Marshals the Dart-serialized graph (parallel arrays: one typeId + one config
+// byte-blob per effect) into car_p2_graph_set's C shape. Both this function
+// and the C ABI copy the config bytes, so all Java references can be released
+// before returning. Returns the CARStatus as jint (0 = OK).
+// -----------------------------------------------------------------------------
+JNIEXPORT jint JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeSetEffectGraph(
+        JNIEnv* env, jobject, jlong ptr,
+        jintArray typeIds, jobjectArray configs) {
+    if (!typeIds || !configs) return CAR_STATUS_INVALID_ARGUMENT;
+    const jsize count = env->GetArrayLength(typeIds);
+    if (count <= 0 || env->GetArrayLength(configs) != count) {
+        return CAR_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::vector<uint32_t> ids(static_cast<size_t>(count));
+    {
+        jint* p = env->GetIntArrayElements(typeIds, nullptr);
+        if (!p) return CAR_STATUS_INTERNAL_ERROR;
+        for (jsize i = 0; i < count; ++i) ids[i] = static_cast<uint32_t>(p[i]);
+        env->ReleaseIntArrayElements(typeIds, p, JNI_ABORT);
+    }
+
+    std::vector<std::vector<uint8_t>> buffers(static_cast<size_t>(count));
+    std::vector<const void*>          cfgPtrs(static_cast<size_t>(count));
+    std::vector<size_t>               cfgSizes(static_cast<size_t>(count));
+    for (jsize i = 0; i < count; ++i) {
+        auto arr = static_cast<jbyteArray>(env->GetObjectArrayElement(configs, i));
+        if (!arr) return CAR_STATUS_INVALID_ARGUMENT;
+        const jsize len = env->GetArrayLength(arr);
+        buffers[i].resize(static_cast<size_t>(len));
+        if (len > 0) {
+            env->GetByteArrayRegion(arr, 0, len,
+                reinterpret_cast<jbyte*>(buffers[i].data()));
+        }
+        env->DeleteLocalRef(arr);
+        cfgPtrs[i]  = buffers[i].data();
+        cfgSizes[i] = static_cast<size_t>(len);
+    }
+
+    return car_p2_graph_set(reinterpret_cast<CARSession*>(ptr),
+                            static_cast<uint32_t>(count),
+                            ids.data(), cfgPtrs.data(), cfgSizes.data());
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeClearEffectGraph(
+        JNIEnv*, jobject, jlong ptr) {
+    return car_p2_graph_clear(reinterpret_cast<CARSession*>(ptr));
+}
+
+JNIEXPORT jint JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeGetEffectCount(
+        JNIEnv*, jobject, jlong ptr) {
+    return static_cast<jint>(
+        car_p2_graph_effect_count(reinterpret_cast<CARSession*>(ptr)));
 }
 
 JNIEXPORT void JNICALL

@@ -34,6 +34,7 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-03
 
+
 ### WP-A (models half) — MediaPipe models fetched; fetch script repaired
 - **Change:** all 6 MediaPipe models are now fetched locally into
   `native/models/` (~7.1 MB, under the 15 MB budget; all verified `TFL3`
@@ -52,6 +53,29 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 - **Verification:** models downloaded + magic-checked locally; script change is
   the same URL that was verified working. Model *loading* is untestable until
   TFLite is vendored.
+
+### WP-C — effect-graph method channel: setEffectGraph → car_p2_graph_set
+- **Change:** implemented `AR_INTEGRATION_SPEC.md` WP-C. Kotlin now handles
+  `setEffectGraph` (unpacks the Dart parallel arrays — `List<Int>` typeIds +
+  `List<ByteArray>` configs — errors surface as `PlatformException`),
+  `clearEffectGraph`, and `getEffectCount`. JNI `nativeSetEffectGraph` marshals
+  to `car_p2_graph_set`'s C shape (both layers copy the config bytes, so Java
+  refs release immediately); `nativeClearEffectGraph`/`nativeGetEffectCount`
+  are thin. Also fixed a latent race: `car_p2_graph_effect_count` used the
+  lazily-constructing `effectGraph()` accessor from the platform thread; added
+  a non-constructing `Phase0Session::installedEffectCount()` peek (internal
+  change, same ABI signature).
+- **On-device consequence (important):** the example app installs Beauty+Lips
+  by default, so merging this makes `renderFramePhase2` (perception with the
+  **stub** neural backend — no TFLite/models until WP-A — plus the effect
+  chain) run on-device for the first time. Expected: effects no-op with zero
+  faces detected → passthrough camera. If the preview goes black or crashes
+  with effects toggled ON but is fine with them OFF, the gap is in the
+  no-face effect-chain passthrough — valuable signal, and the toggles are the
+  escape hatch.
+- **Verification:** NDK clang on 3 changed TUs + `flutter build apk --debug`.
+  Not runtime-verified.
+
 
 ### WP-B — AR render path: camera ingress + renderFramePhase2 + present-blit
 - **Change:** implemented `AR_INTEGRATION_SPEC.md` WP-B. New C ABI symbol
