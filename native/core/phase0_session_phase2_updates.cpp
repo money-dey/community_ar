@@ -55,9 +55,12 @@ NeuralBackend* Phase0Session::neuralBackend() {
 }
 
 const TextureHandle& Phase0Session::cameraOutputTexture() {
-    // The Phase 2 render path samples the current camera frame from here. The
-    // frame-submit path is expected to populate this each frame; until that is
-    // wired at bring-up, a default (invalid) handle keeps the path type-correct.
+    // WP-B: the AR submit path (processFrameAR) ingress-copies the camera OES
+    // frame into a 2D texture each frame, with the UV transform applied —
+    // perception + effects sample that. Before the first ingress (or on the
+    // legacy offscreen path) fall back to an invalid handle so the path stays
+    // type-correct.
+    if (ingressFbo_) return ingressFbo_->colorTexture();
     if (!p2_->cameraTex) {
         p2_->cameraTex = std::make_unique<TextureHandle>();
     }

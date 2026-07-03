@@ -124,8 +124,8 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             displayWidth = DISPLAY_WIDTH,
             displayHeight = DISPLAY_HEIGHT,
             nativeCreateSession = { st -> nativeCreateSession(st) },
-            nativeSubmitFrameDisplay = { ptr, tex, w, h, rot, front, mat ->
-                nativeSubmitFrameDisplay(ptr, tex.toLong(), w, h, rot, front, mat)
+            nativeSubmitFrameAr = { ptr, tex, w, h, mat, ts ->
+                nativeSubmitFrameAr(ptr, tex.toLong(), w, h, mat, ts)
             },
             nativeDestroySession = { ptr -> nativeDestroySession(ptr) },
         )
@@ -308,6 +308,12 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                                                   width: Int, height: Int,
                                                   rotation: Int, isFront: Int,
                                                   texMatrix: FloatArray)
+    // AR path (WP-B): subsumes nativeSubmitFrameDisplay — identical output when
+    // no effect graph is installed. The Phase 0 symbol stays for fallback.
+    private external fun nativeSubmitFrameAr(ptr: Long, textureHandle: Long,
+                                             width: Int, height: Int,
+                                             texMatrix: FloatArray,
+                                             timestampNs: Long)
     private external fun nativeSetTestMode(ptr: Long, mode: Int)
     private external fun nativeGetOutputDimensions(ptr: Long, out: IntArray)
     private external fun nativeGetStats(ptr: Long): FloatArray

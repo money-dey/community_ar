@@ -34,6 +34,33 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-03
 
+### WP-B — AR render path: camera ingress + renderFramePhase2 + present-blit
+- **Change:** implemented `AR_INTEGRATION_SPEC.md` WP-B. New C ABI symbol
+  `car_p2_submit_frame_display(session, oesTex, w, h, texMatrix16, timestampNs)`
+  → `Phase0Session::submitFrameAR/processFrameAR`: (1) drain the render queue so
+  graph installs take effect same-frame; (2) **ingress** — OES camera → 2D RGBA
+  FBO applying the UV transform once (`cameraOutputTexture()` now returns this,
+  replacing the invalid-handle stub, so perception/effects sample an upright,
+  zoomed sampler2D frame); (3) graph installed → `renderFramePhase2()` into the
+  offscreen `outputFbo_` then a passthrough **present-blit** to fbo 0; graph
+  empty → present the ingress texture through the Phase 0 test-mode (2D)
+  shaders. JNI `nativeSubmitFrameAr`; Kotlin `GlRenderPipeline` now calls it
+  unconditionally with `SurfaceTexture.timestamp`.
+- **Options:** (per spec §3c) new subsuming symbol vs. Kotlin branching on
+  `getEffectCount()`. **Chose the subsuming symbol** — one entry point, the
+  empty-graph path is pixel-identical to Phase 0 (test modes preserved), and
+  Phase 0 symbols stay untouched (CLAUDE.md §2).
+- **Design notes:** graph presence is a pointer check (`p2_->effectGraph &&
+  effectCount()>0`), not the lazy accessor — the empty-graph hot path must not
+  construct Phase 2 machinery. Orientation is applied exactly once (ingress);
+  the present-blit is identity. Costs one full-frame copy + one blit (~1–2 ms,
+  within budget).
+- **Verification:** NDK clang on the 4 changed TUs + `flutter build apk --debug`
+  link. **Not runtime-verified**; on-device acceptance = empty graph renders
+  identical live camera (incl. test modes, zoom, orientation, resume). With no
+  TFLite/models (WP-A) and no `setEffectGraph` handler (WP-C), the graph path is
+  unreachable on-device — by design, this lands the plumbing safely first.
+
 ### AR feature integration spec (Phases 0–3) — docs
 - **Change:** added `docs/AR_INTEGRATION_SPEC.md` — an implementation-ready spec
   for wiring the perception/effect features (which already compile in C++ and are

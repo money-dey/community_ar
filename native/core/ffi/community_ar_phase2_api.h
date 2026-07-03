@@ -87,6 +87,33 @@ CAR_EXPORT CARStatus car_p2_graph_set(
 CAR_EXPORT CARStatus car_p2_graph_clear(CARSession* session);
 
 // -----------------------------------------------------------------------------
+// Frame submission (AR display path) — added for the AR platform integration
+// (docs/AR_INTEGRATION_SPEC.md, WP-B). Subsumes car_p0_submit_frame_display:
+//
+//   1. Ingress-copies the camera OES texture into an upright 2D texture,
+//      applying `texMatrix16` (column-major 4x4, null = identity) once.
+//   2. If an effect graph is installed: runs perception + the effect graph
+//      offscreen and blits the result to the default framebuffer.
+//      If not: presents the ingress texture through the Phase 0 test-mode
+//      shader — pixel-identical to the Phase 0 display path.
+//
+// The caller owns the EGL window surface and presents with eglSwapBuffers
+// afterwards. `width`/`height` are the display (window-surface) dimensions.
+// `timestampNs` is the camera frame's capture timestamp (SurfaceTexture
+// timestamp on Android), consumed by perception and the One-Euro filters.
+// Must be called on the render thread whose current EGL context owns fbo 0.
+//
+// NEW symbol; all Phase 0/1/2 symbols are unchanged (C ABI stability
+// invariant — CLAUDE.md §2).
+// -----------------------------------------------------------------------------
+CAR_EXPORT CARStatus car_p2_submit_frame_display(CARSession* session,
+                                                 uint64_t cameraTextureHandle,
+                                                 int width,
+                                                 int height,
+                                                 const float* texMatrix16,
+                                                 int64_t timestampNs);
+
+// -----------------------------------------------------------------------------
 // Diagnostics — count of currently installed effects
 // -----------------------------------------------------------------------------
 CAR_EXPORT uint32_t car_p2_graph_effect_count(CARSession* session);
