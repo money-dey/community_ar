@@ -73,9 +73,11 @@ class GlRenderPipeline(
         // sideways-the-other-way case. Same value works for both cameras; front
         // adds a horizontal mirror (MIRROR_FRONT).
         private const val UV_ROTATION_DEG = 0
-        // Front camera is a selfie view → mirror horizontally. If the front
-        // preview reads text backwards or the wrong hand waves, flip this.
-        private const val MIRROR_FRONT = true
+        // Front camera horizontal mirror. A mirrored selfie preview is the
+        // usual convention, but on-device it was flagged as an unwanted
+        // horizontal flip, so it's off. Set true to restore the mirror-image
+        // (selfie) view.
+        private const val MIRROR_FRONT = false
     }
 
     private var glThread: HandlerThread? = null
