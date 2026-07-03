@@ -66,10 +66,13 @@ class GlRenderPipeline(
         // and the buffer is 720×1280, a correct 90°/270° here also removes the
         // "stretched" look (the axis swap makes 1280↔1280 / 720↔720). The exact
         // value is device/convention-dependent and can only be confirmed on
-        // hardware — if the preview is a quarter-turn off, try the next value in
-        // {270, 90, 0, 180} until it's upright. Same value works for both
-        // cameras; front adds a horizontal mirror (MIRROR_FRONT).
-        private const val UV_ROTATION_DEG = 270
+        // hardware. On-device the front sensor is 270°, and setting 270 here
+        // reproduced the old sensor-derived result exactly ("chin-left", a
+        // quarter-turn off) — so the correct value is a 90° neighbour: 0 (try
+        // first), else 180 (if it comes out upside-down); 90/270 give the
+        // sideways-the-other-way case. Same value works for both cameras; front
+        // adds a horizontal mirror (MIRROR_FRONT).
+        private const val UV_ROTATION_DEG = 0
         // Front camera is a selfie view → mirror horizontally. If the front
         // preview reads text backwards or the wrong hand waves, flip this.
         private const val MIRROR_FRONT = true
