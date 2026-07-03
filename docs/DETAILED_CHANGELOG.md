@@ -56,6 +56,29 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
   externally owned.
 - **Verification:** docs only; no code change.
 
+### Android pipeline — first on-device result + orientation tuning
+- **Change:** the pipeline **shows live camera on a real device** (EGL,
+  presentation into the Flutter texture, and OES sampling all confirmed working
+  on hardware — the core bring-up milestone). First-pass image was a quarter-turn
+  off ("lying on its side") and stretched. Reworked `GlRenderPipeline`'s
+  `computeUvTransform` to a single fixed rotation (`UV_ROTATION_DEG`) + front
+  mirror (`MIRROR_FRONT`), dropping the `SENSOR_ORIENTATION`-derived rotation;
+  added a one-shot diagnostic logcat line.
+- **Why / options:** on-device data showed **both cameras need the same
+  quarter-turn** (only the front differs by a mirror), so a fixed rotation is
+  correct and avoids the sign/handedness ambiguity of deriving it from
+  `SENSOR_ORIENTATION`. Crucially, rotation and "stretch" are the *same* bug: a
+  correct 90°/270° rotation swaps the `1280×720`↔`720×1280` axes and removes the
+  stretch. Exact rotation value is device-dependent → exposed as a tuning knob to
+  cycle `{270,90,0,180}` rather than guessing blind (the dev env can't see the
+  screen).
+- **Deferred:** the example app isn't portrait-locked; following live device
+  rotation (display rotation + landscape buffer-dim swap) is a tracked follow-up.
+  Portrait-upright is the first target.
+- **Verification:** `flutter build apk --debug` builds & links. Orientation
+  correctness itself is **only confirmable on-device** — the knob may need one
+  cycle to land upright.
+
 ### Android GL/EGL pipeline — implement Option A (Kotlin owns EGL)
 - **Change:** built the Android render pipeline that was only *documented* in
   PR #19. Kotlin now owns a dedicated GL render thread + EGL14 context + an EGL

@@ -59,6 +59,20 @@ class GlRenderPipeline(
         // Camera capture resolution (landscape sensor space).
         private const val CAMERA_WIDTH = 1280
         private const val CAMERA_HEIGHT = 720
+
+        // --- Orientation tuning (see docs/ANDROID_RENDER_PIPELINE.md §4) ---
+        // Rotation, in degrees, applied to bring the landscape camera image
+        // upright in our portrait display buffer. Because the camera is 1280×720
+        // and the buffer is 720×1280, a correct 90°/270° here also removes the
+        // "stretched" look (the axis swap makes 1280↔1280 / 720↔720). The exact
+        // value is device/convention-dependent and can only be confirmed on
+        // hardware — if the preview is a quarter-turn off, try the next value in
+        // {270, 90, 0, 180} until it's upright. Same value works for both
+        // cameras; front adds a horizontal mirror (MIRROR_FRONT).
+        private const val UV_ROTATION_DEG = 270
+        // Front camera is a selfie view → mirror horizontally. If the front
+        // preview reads text backwards or the wrong hand waves, flip this.
+        private const val MIRROR_FRONT = true
     }
 
     private var glThread: HandlerThread? = null
@@ -87,6 +101,9 @@ class GlRenderPipeline(
     private val stMatrix = FloatArray(16)
     private val orientMatrix = FloatArray(16)
     private val uvMatrix = FloatArray(16)
+
+    // One-shot diagnostic so the on-device orientation tuning has real data.
+    private var loggedFirstFrame = false
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -231,7 +248,13 @@ class GlRenderPipeline(
         try {
             st.updateTexImage()
             st.getTransformMatrix(stMatrix)
-            val m = computeUvTransform(stMatrix, cameraRotation, isFront)
+            if (!loggedFirstFrame) {
+                loggedFirstFrame = true
+                Log.i(TAG, "first frame: sensorOrientation=$cameraRotation " +
+                    "front=$isFront uvRotation=$UV_ROTATION_DEG " +
+                    "st=[${stMatrix.joinToString(",")}]")
+            }
+            val m = computeUvTransform(stMatrix, isFront)
             nativeSubmitFrameDisplay(
                 ptr, cameraTexId, displayWidth, displayHeight,
                 cameraRotation, if (isFront) 1 else 0, m)
@@ -243,25 +266,28 @@ class GlRenderPipeline(
     }
 
     /**
-     * Compose the SurfaceTexture transform (crop/flip the camera itself needs)
-     * with a rotation+mirror about the UV center that orients the landscape
-     * sensor image upright in the portrait window and mirrors the front camera.
+     * Build the UV transform that samples the landscape camera into our portrait
+     * buffer: a fixed [UV_ROTATION_DEG] rotation about the UV centre (upright the
+     * image + remove the stretch via the axis swap), an optional horizontal
+     * mirror for the front camera, and finally the SurfaceTexture transform
+     * (`st`, which handles the OES crop/flip). The shader applies uTexMatrix to
+     * the quad UVs, so the composed result is `st * orient`.
      *
-     * The shader applies uTexMatrix to the quad UVs, so the result is
-     * `stMatrix * orient`. Reuses [uvMatrix]; the value is copied out
+     * The rotation is a single fixed value (not derived from SENSOR_ORIENTATION)
+     * because on-device testing showed both cameras need the same quarter-turn;
+     * only the mirror differs. Reuses [uvMatrix]; the value is copied out
      * immediately by the (synchronous) native call, so reuse is safe.
      *
-     * NOTE: exact rotation/mirror handedness is device-dependent and needs
-     * on-device verification (ANDROID_RENDER_PIPELINE.md §4/§5, step 6). This is
-     * the mechanism; the constants may need a sign/rotation tweak on hardware.
+     * NOTE: [UV_ROTATION_DEG] / [MIRROR_FRONT] are the on-device tuning knobs
+     * (ANDROID_RENDER_PIPELINE.md §4). This assumes a portrait-held device;
+     * following live device rotation is a separate follow-up (needs the display
+     * rotation + swapping the buffer dimensions in landscape).
      */
-    private fun computeUvTransform(
-        st: FloatArray, rotationDegrees: Int, front: Boolean,
-    ): FloatArray {
+    private fun computeUvTransform(st: FloatArray, front: Boolean): FloatArray {
         Matrix.setIdentityM(orientMatrix, 0)
         Matrix.translateM(orientMatrix, 0, 0.5f, 0.5f, 0f)
-        Matrix.rotateM(orientMatrix, 0, rotationDegrees.toFloat(), 0f, 0f, 1f)
-        if (front) Matrix.scaleM(orientMatrix, 0, -1f, 1f, 1f)
+        Matrix.rotateM(orientMatrix, 0, UV_ROTATION_DEG.toFloat(), 0f, 0f, 1f)
+        if (front && MIRROR_FRONT) Matrix.scaleM(orientMatrix, 0, -1f, 1f, 1f)
         Matrix.translateM(orientMatrix, 0, -0.5f, -0.5f, 0f)
         Matrix.multiplyMM(uvMatrix, 0, st, 0, orientMatrix, 0)
         return uvMatrix
