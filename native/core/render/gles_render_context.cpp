@@ -131,7 +131,8 @@ public:
         glLinkProgram(program_);
         GLint linked;
         glGetProgramiv(program_, GL_LINK_STATUS, &linked);
-        if (!linked) {
+        linked_ = linked != 0;
+        if (!linked_) {
             char log[1024];
             glGetProgramInfoLog(program_, sizeof(log), nullptr, log);
             LOGE("Shader link failed: %s", log);
@@ -144,7 +145,21 @@ public:
         if (program_) glDeleteProgram(program_);
     }
 
-    void use() override { glUseProgram(program_); }
+    // Using an unlinked program raises GL_INVALID_OPERATION on every draw —
+    // on-device that surfaced as per-frame 0x502 spam that drowned out other
+    // failures. Log once and leave the previous program bound instead; the
+    // pass renders wrong but the error state stays clean and diagnosable.
+    void use() override {
+        if (!linked_) {
+            if (!warnedUnlinked_) {
+                warnedUnlinked_ = true;
+                LOGE("use() on unlinked shader program %u — pass disabled "
+                     "(see the link failure above)", program_);
+            }
+            return;
+        }
+        glUseProgram(program_);
+    }
 
     void setUniform(const char* n, float v) override {
         glUniform1f(loc(n), v);
@@ -175,6 +190,8 @@ public:
 
 private:
     GLuint program_ = 0;
+    bool   linked_ = false;
+    bool   warnedUnlinked_ = false;
 
     GLint loc(const char* name) {
         return glGetUniformLocation(program_, name);
