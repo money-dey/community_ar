@@ -89,6 +89,11 @@ public:
     // Called once per frame, before run(), based on the active composition.
     void setRequirements(const PerceptionInputs& inputs);
 
+    // Live One-Euro tuning for the FACE landmark filters (WP-E sliders).
+    // Deliberately not applied to iris: it runs stiffer defaults
+    // (CLAUDE.md invariant 6) and jitter tuning is a face-landmark exercise.
+    void setLandmarkFilterParams(float minCutoff, float beta, float dCutoff);
+
     // Run all enabled perception steps for the given camera frame.
     // The returned PerceptionFrame is owned by this pipeline and remains
     // valid until the next call to run().

@@ -20,6 +20,7 @@
 #include "perception/perception_pipeline.h"
 #include "ml/neural_backend.h"
 #include "render/render_context.h"
+#include "render/debug_overlay.h"
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -57,6 +58,17 @@ struct Phase0Session::Phase2Members {
     std::atomic<int>   statFacesDetected{0};
     std::atomic<float> statSkinLuma{0.0f};
     std::atomic<int>   statSkinValid{0};
+
+    // ---- WP-E debug state ----
+    // Written from the platform thread (car_p1_set_debug_overlay /
+    // car_p1_force_perception), read by the render thread each AR frame.
+    // Atomics rather than the render queue: these are latest-wins values with
+    // no ordering relationship to graph mutations.
+    std::atomic<uint32_t> debugOverlayMask{0};
+    std::atomic<uint32_t> forcedPerceptionBits{0};   // kForce* (phase0_session.h)
+
+    // Lazily created on the render thread the first time the mask is nonzero.
+    std::unique_ptr<DebugOverlay> debugOverlay;
 };
 
 }  // namespace community_ar

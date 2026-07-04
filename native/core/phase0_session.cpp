@@ -410,7 +410,16 @@ void Phase0Session::processFrameAR(uint64_t cameraTexHandle, int w, int h,
     //    Phase 2 machinery that nothing has asked for yet).
     const bool hasGraph = p2_->effectGraph && p2_->effectGraph->effectCount() > 0;
 
-    if (hasGraph) {
+    // WP-E: an active debug overlay / forced perception also needs the
+    // Phase 2 path — with an empty graph it degenerates to a camera blit with
+    // the overlay composited on top, which is exactly what "show me the
+    // landmarks with no effect installed" means. Allocating the Phase 2
+    // machinery is fine here: debugging asked for it explicitly.
+    const bool debugActive =
+        p2_->debugOverlayMask.load(std::memory_order_relaxed) != 0 ||
+        p2_->forcedPerceptionBits.load(std::memory_order_relaxed) != 0;
+
+    if (hasGraph || debugActive) {
         // 3a. Perception + effect graph render into the offscreen output FBO
         //     (effects need it for ping-pong chaining).
         ensureOutputFramebuffer(w, h);

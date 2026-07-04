@@ -157,15 +157,16 @@ void DebugOverlay::render(const TextureHandle& inputCamera,
     ctx_->bindFramebuffer(outputFbo);
 
     // ---- Base layer ----
+    // The overlay composites OVER whatever is already in outputFbo (the
+    // effect graph's output, or the camera blit when the graph is empty) —
+    // drawing a camera passthrough here would erase the effects being
+    // debugged. The one exception is HairMask mode, which deliberately
+    // replaces the scene with the camera+mask visualization.
     if ((modeMask_ & (uint32_t)DebugOverlayMode::HairMask) && frame.hairMask) {
         shaderHairMask_->use();
         shaderHairMask_->bindTexture("uCamera", inputCamera, 0);
         shaderHairMask_->bindTexture("uMask", *frame.hairMask, 1);
         ctx_->drawFullscreenQuad(shaderHairMask_.get());
-    } else {
-        shaderPassthrough_->use();
-        shaderPassthrough_->bindTexture("uCamera", inputCamera, 0);
-        ctx_->drawFullscreenQuad(shaderPassthrough_.get());
     }
 
     // ---- Build instance buffer ----
@@ -239,12 +240,13 @@ void DebugOverlay::render(const TextureHandle& inputCamera,
         ctx_->currentFramebufferSize(&w, &h);
         shaderDots_->setUniform("uViewportSize", (float)w, (float)h);
 
-        ctx_->enableAlphaBlending(true);
+        // Blend state (classic src-alpha) is owned by drawInstancedQuads;
+        // enableAlphaBlending() is ADDITIVE and belongs to the mask
+        // rasterizer — using it here made overlapping dots blow out to white.
         ctx_->drawInstancedQuads(shaderDots_.get(),
                                  quadVerts_.get(), 6,
                                  instanceVbo_.get(),
                                  (int)instanceBuffer_.size());
-        ctx_->enableAlphaBlending(false);
     }
 
     ctx_->flush();

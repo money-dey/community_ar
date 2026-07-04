@@ -58,6 +58,14 @@ void Phase0Session::getPerceptionStatsSnapshot(
     // pipeline — read as 0 until WP-E plumbs them through.
 }
 
+void Phase0Session::setDebugOverlayMask(uint32_t modeMask) {
+    p2_->debugOverlayMask.store(modeMask, std::memory_order_relaxed);
+}
+
+void Phase0Session::setForcedPerceptionBits(uint32_t bits) {
+    p2_->forcedPerceptionBits.store(bits, std::memory_order_relaxed);
+}
+
 NeuralBackend* Phase0Session::neuralBackend() {
     if (!p2_->neuralBackend) {
         BackendConfig bc;
@@ -162,8 +170,21 @@ void Phase0Session::renderFramePhase2(int64_t captureTimestampNs) {
     // 1. Drain queued ABI work (graph swaps, etc.) before rendering
     drainRenderQueue();
 
-    // 2. Run perception. The pipeline already knows its requirements
-    //    (set by car_p2_graph_set / car_p2_graph_clear).
+    // 2. Recompute perception requirements: the union of what the installed
+    //    effects need, plus anything force-enabled for debugging (overlays
+    //    must have data to draw when no effect requested that model).
+    PerceptionInputs req = effectGraph().perceptionInputs();
+    const uint32_t forced =
+        p2_->forcedPerceptionBits.load(std::memory_order_relaxed);
+    if (forced) {
+        req.needsFaceLandmarks |= (forced & kForceFaceLandmarks) != 0;
+        req.needsIrisLandmarks |= (forced & kForceIris) != 0;
+        req.needsHairMask      |= (forced & kForceHair) != 0;
+        req.needsSelfieMask    |= (forced & kForceSelfieSeg) != 0;
+        req.needsFacePose      |= (forced & kForcePose) != 0;
+        req.needsSkinTone      |= (forced & kForceSkinTone) != 0;
+    }
+    perceptionPipeline().setRequirements(req);
     const PerceptionFrame& frame =
         perceptionPipeline().run(cameraOutputTexture(), captureTimestampNs);
 
@@ -182,6 +203,20 @@ void Phase0Session::renderFramePhase2(int64_t captureTimestampNs) {
 
     // 3. Run the effect graph. If empty, this just blits camera → display.
     effectGraph().render(cameraOutputTexture(), frame, displayFramebuffer());
+
+    // 3.5 Debug overlay (WP-E): composite perception visualizations over the
+    //     effect output, still in the offscreen FBO so the present blit picks
+    //     it up. Free when the mask is 0.
+    const uint32_t dbgMask =
+        p2_->debugOverlayMask.load(std::memory_order_relaxed);
+    if (dbgMask) {
+        if (!p2_->debugOverlay) {
+            p2_->debugOverlay = std::make_unique<DebugOverlay>(renderContext());
+        }
+        p2_->debugOverlay->setMode(dbgMask);
+        p2_->debugOverlay->render(cameraOutputTexture(), frame,
+                                  displayFramebuffer());
+    }
 
     // 4. Phase 0's existing post-render notifications (Flutter texture
     //    available signal, etc.) continue from here.

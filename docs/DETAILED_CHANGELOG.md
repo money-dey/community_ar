@@ -34,6 +34,52 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-04
 
+### WP-E debug overlays wired end-to-end — "stop navigating blindly"
+- **Context (maintainer call):** on-device iterations were steering by
+  secondary signals (crash addresses, a faces: count, "is lipstick visible").
+  Before the next device run, make the observability layer real: landmark /
+  iris / pose dots and the hair-mask view rendered over the live output, with
+  perception force-enabled so overlays work with NO effect installed. The
+  Dart API + example-app UI for all of this already existed and fired into
+  accepted-but-inert C stubs and missing Kotlin handlers.
+- **GLES instancing implemented** (`gles_render_context.cpp`): the overlay's
+  one-draw-call dot renderer needed `drawInstancedQuads` + per-instance
+  attributes, which #34 had left stubbed ("per-instance attrs unsupported").
+  New `GlesInstancedShaderProgram` carries the `InstancedVertexFormat`;
+  `drawInstancedQuads` applies it with `glVertexAttribDivisor` +
+  `glDrawArraysInstanced` (core ES 3.0), resets divisors after (drawTriangles
+  reuses the attrib slots). **Blend state is owned by the draw call** (classic
+  src-alpha) because `enableAlphaBlending()` is deliberately ADDITIVE for the
+  mask rasterizer — the two consumers need different blending, so each path
+  sets its own. Also implemented `currentFramebufferSize` (viewport query);
+  the default no-op would have NaN'd every dot position via a 0×0 divide.
+- **Overlay composites, not replaces** (`debug_overlay.cpp`): render() used to
+  draw a camera passthrough as its base layer, which would have erased the
+  effect output being debugged. Now it draws dots over whatever is in the
+  target FBO; only HairMask mode replaces the scene (that's its purpose).
+- **Session plumbing** (`phase0_session*`): `debugOverlayMask` +
+  `forcedPerceptionBits` as latest-wins atomics (platform thread writes,
+  render thread reads — no queue needed); `renderFramePhase2` recomputes
+  perception requirements per frame as graph-union OR forced bits, then
+  composites the overlay after the effect graph, before the present blit.
+  **`processFrameAR` routes through the Phase 2 path when debug is active
+  even with an empty graph** — otherwise "show landmarks with no effect"
+  would silently show nothing (the empty-graph fast path never ran
+  perception). `PerceptionPipeline::setLandmarkFilterParams` forwards the
+  One-Euro sliders to the face landmarker (iris keeps its stiffer defaults
+  per invariant 6).
+- **ABI + platform**: `car_p1_set_debug_overlay` / `car_p1_force_perception`
+  (CARPerceptionRequest packed into kForce* bits) / `car_p1_set_one_euro_params`
+  (render-queue hop — filter banks are render-thread state) are now real; JNI
+  `nativeSetDebugOverlay` / `nativeForcePerception` / `nativeSetOneEuroParams`;
+  Kotlin handlers with the pre-session stash pattern from the #32 graph-race
+  fix (a toggle racing createSession is stashed and applied at create).
+- **Verified:** NDK clang `-fsyntax-only` (7 TUs) + `flutter build apk --debug`.
+  **Not runtime-verified.** On-device acceptance: toggling Landmarks with no
+  effect shows ~478 green dots tracking the face; dots land ON facial features
+  (direct visual test of the pixel-unit scaling fix); Iris shows blue circles;
+  HairMask tints hair; One-Euro sliders visibly change dot jitter. (PR #36)
+
 ### Pre-emptive fifth-iteration fix — landmark coords are input-PIXEL units, not [0,1]
 - **Context:** #33/#34 merged; next on-device run should reach visible effects.
   Auditing the deferred iris item ("output sizes [213]/[15] mismatched") found

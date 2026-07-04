@@ -67,6 +67,10 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private var pendingGraphTypeIds: IntArray? = null
     private var pendingGraphConfigs: Array<ByteArray>? = null
 
+    // Same pre-session race for the WP-E debug controls.
+    private var pendingDebugOverlay: Int? = null
+    private var pendingForcePerception: IntArray? = null
+
     // Activity + a pending permission result (one request in flight at a time).
     private var activity: Activity? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
@@ -134,6 +138,42 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                         }
                     }
                 }
+                // WP-E debug controls. Each is stashed when it arrives before
+                // the session exists (same race as setEffectGraph — the Dart
+                // side may fire during initState) and applied in createSession.
+                "setDebugOverlay" -> {
+                    val mode = (call.argument<Number>("mode"))?.toInt() ?: 0
+                    if (nativeSessionPtr != 0L) {
+                        nativeSetDebugOverlay(nativeSessionPtr, mode)
+                    } else {
+                        pendingDebugOverlay = mode
+                    }
+                    result.success(null)
+                }
+                "forcePerception" -> {
+                    fun need(k: String) =
+                        (call.argument<Number>(k))?.toInt() ?: 0
+                    val req = intArrayOf(
+                        need("needFaceLandmarks"), need("needIris"),
+                        need("needHair"), need("needSelfieSeg"),
+                        need("needPose"), need("needSkinTone"))
+                    if (nativeSessionPtr != 0L) {
+                        nativeForcePerception(nativeSessionPtr, req[0], req[1],
+                            req[2], req[3], req[4], req[5])
+                    } else {
+                        pendingForcePerception = req
+                    }
+                    result.success(null)
+                }
+                "setOneEuroParams" -> {
+                    val minCutoff = (call.argument<Number>("minCutoff"))?.toFloat() ?: 1.0f
+                    val beta      = (call.argument<Number>("beta"))?.toFloat() ?: 0.007f
+                    val dCutoff   = (call.argument<Number>("dCutoff"))?.toFloat() ?: 1.0f
+                    if (nativeSessionPtr != 0L) {
+                        nativeSetOneEuroParams(nativeSessionPtr, minCutoff, beta, dCutoff)
+                    }
+                    result.success(null)
+                }
                 "outputTextureId"  -> result.success(surfaceEntry?.id() ?: -1)
                 "outputDimensions" -> result.success(getOutputDimensions())
                 "getStats"         -> result.success(getStats())
@@ -199,6 +239,15 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             }
             pendingGraphTypeIds = null
             pendingGraphConfigs = null
+
+            // Debug controls that raced session creation (same pattern).
+            pendingDebugOverlay?.let { nativeSetDebugOverlay(nativeSessionPtr, it) }
+            pendingDebugOverlay = null
+            pendingForcePerception?.let { r ->
+                nativeForcePerception(nativeSessionPtr,
+                    r[0], r[1], r[2], r[3], r[4], r[5])
+            }
+            pendingForcePerception = null
         }
         return nativeSessionPtr
     }
@@ -440,6 +489,14 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private external fun nativeClearEffectGraph(ptr: Long): Int
     private external fun nativeGetEffectCount(ptr: Long): Int
     private external fun nativeGetPerceptionStats(ptr: Long): FloatArray?
+    // WP-E debug controls (Phase 1 C ABI).
+    private external fun nativeSetDebugOverlay(ptr: Long, modeMask: Int)
+    private external fun nativeForcePerception(ptr: Long,
+                                               faceLandmarks: Int, iris: Int,
+                                               hair: Int, selfieSeg: Int,
+                                               pose: Int, skinTone: Int)
+    private external fun nativeSetOneEuroParams(ptr: Long, minCutoff: Float,
+                                                beta: Float, dCutoff: Float)
     private external fun nativeSetTestMode(ptr: Long, mode: Int)
     private external fun nativeGetOutputDimensions(ptr: Long, out: IntArray)
     private external fun nativeGetStats(ptr: Long): FloatArray

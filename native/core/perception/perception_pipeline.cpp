@@ -61,6 +61,13 @@ PerceptionPipeline::PerceptionPipeline(const PerceptionConfig& cfg,
 
 PerceptionPipeline::~PerceptionPipeline() = default;
 
+void PerceptionPipeline::setLandmarkFilterParams(float minCutoff, float beta,
+                                                 float dCutoff) {
+    if (impl_->faceLandmarker) {
+        impl_->faceLandmarker->setFilterParams(minCutoff, beta, dCutoff);
+    }
+}
+
 void PerceptionPipeline::unloadIdleModels() {
     // Placeholder: sub-models are currently retained for the session lifetime.
     // A future memory-pressure policy would release idle models here (they are
