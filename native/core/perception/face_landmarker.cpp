@@ -314,11 +314,36 @@ bool FaceLandmarker::run(const TextureHandle& cameraTex,
         impl_->landmarkModel->setInputTexture(0, cameraTex, crop);
         if (!impl_->landmarkModel->run()) continue;
 
-        impl_->landmarkModel->readOutput(0, impl_->landmarkOutput.data(),
-            impl_->landmarkOutput.size() * sizeof(float));
-        if (impl_->landmarkModel->outputs().size() > 1) {
-            impl_->landmarkModel->readOutput(1, impl_->blendshapeOutput.data(),
-                impl_->blendshapeOutput.size() * sizeof(float));
+        // Size the read from the model's actual output spec: the bundled
+        // FaceMesh variant emits 478 points ([1,1,1,1434] — 468 mesh + 10
+        // iris-refinement); older variants emit 468 (1404). A hardcoded 1404
+        // read failed the byte-size check silently and left zeroed landmarks.
+        const auto& lmOuts = impl_->landmarkModel->outputs();
+        const int lmFloats =
+            lmOuts.empty() ? 468 * 3 : lmOuts[0].shape.totalElements();
+        if (lmFloats < 468 * 3) {
+            CAR_PERC_LOGE_ONCE("face_landmarker output too small (%d floats)",
+                               lmFloats);
+            continue;
+        }
+        if ((int)impl_->landmarkOutput.size() != lmFloats) {
+            impl_->landmarkOutput.resize((size_t)lmFloats);
+        }
+        if (!impl_->landmarkModel->readOutput(0, impl_->landmarkOutput.data(),
+                impl_->landmarkOutput.size() * sizeof(float))) {
+            CAR_PERC_LOGE_ONCE("face_landmarker readOutput failed (%d floats)",
+                               lmFloats);
+            continue;
+        }
+        // Blendshapes: identify a 52-float output if this model has one (the
+        // bundled landmarker's extra outputs are presence scores, not
+        // blendshapes — those come from the separate face_blendshapes model).
+        for (size_t oi = 1; oi < lmOuts.size(); ++oi) {
+            if (lmOuts[oi].shape.totalElements() == 52) {
+                impl_->landmarkModel->readOutput((int)oi,
+                    impl_->blendshapeOutput.data(), 52 * sizeof(float));
+                break;
+            }
         }
 
         // Convert crop-local landmarks to image-normalized coords

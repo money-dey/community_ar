@@ -183,6 +183,15 @@ void MaskRasterizer::rasterize(const std::vector<MaskContour>& contours,
         return;
     }
 
+    // A backend lacking the extended API (vertex buffers / raster shader)
+    // must degrade to an empty mask, not crash — this null-deref took the
+    // app down on-device the first time a face was ever detected.
+    if (!rasterShader_ || !vertexBuffer_) {
+        ctx_->bindFramebuffer(maskFbo_.get());
+        ctx_->clearColor(0, 0, 0, 1);
+        return;
+    }
+
     auto* ex = static_cast<RenderContextEx*>(ctx_);
     ex->uploadDynamicVertexBuffer(vertexBuffer_.get(),
                                    vertexScratch_.data(),
