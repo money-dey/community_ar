@@ -15,25 +15,11 @@
 // =============================================================================
 
 #include "face_landmarker.h"
+#include "perception_log.h"
 #include "../render/render_context.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-
-#if defined(__ANDROID__)
-#include <android/log.h>
-#define CAR_PERC_LOGE(...) \
-    __android_log_print(ANDROID_LOG_ERROR, "CommunityAR-Perc", __VA_ARGS__)
-#else
-#define CAR_PERC_LOGE(...) ((void)0)
-#endif
-// Perception runs every frame; a persistent failure must log once, not spam
-// (each call site gets its own static flag).
-#define CAR_PERC_LOGE_ONCE(...)                                     \
-    do {                                                            \
-        static bool _logged = false;                                \
-        if (!_logged) { _logged = true; CAR_PERC_LOGE(__VA_ARGS__); } \
-    } while (0)
 
 namespace community_ar {
 
@@ -346,21 +332,31 @@ bool FaceLandmarker::run(const TextureHandle& cameraTex,
             }
         }
 
-        // Convert crop-local landmarks to image-normalized coords
+        // Convert crop-local landmarks to image-normalized coords.
+        // FaceMesh emits coordinates in PIXELS of its input tensor (the
+        // bundled face_landmarks_detector is 256×256; the classic
+        // face_landmark is 192×192) — MediaPipe's TensorsToLandmarksCalculator
+        // divides by the input size and so must we, or every landmark lands
+        // ~2 orders of magnitude outside the crop. Divisor comes from the
+        // input spec so both model variants work.
+        const auto& lmIns = impl_->landmarkModel->inputs();
+        const float lmScale = 1.0f /
+            ((!lmIns.empty() && lmIns[0].shape.rank >= 3 && lmIns[0].shape.dims[1] > 0)
+                 ? (float)lmIns[0].shape.dims[1] : 192.0f);
+
         FaceData fd;
         fd.faceId = a.trackId;
 
         float landmarkBuf[468 * 2];
         for (int i = 0; i < 468; ++i) {
-            // FaceMesh outputs are in [0,1] within the crop
-            float lx = impl_->landmarkOutput[i*3+0];
-            float ly = impl_->landmarkOutput[i*3+1];
+            float lx = impl_->landmarkOutput[i*3+0] * lmScale;
+            float ly = impl_->landmarkOutput[i*3+1] * lmScale;
             // Transform to full-image normalized coords
             float gx = (crop.x + lx * crop.width)  / imageWidth;
             float gy = (crop.y + ly * crop.height) / imageHeight;
             landmarkBuf[i*2+0] = gx;
             landmarkBuf[i*2+1] = gy;
-            fd.landmarks.relativeZ[i] = impl_->landmarkOutput[i*3+2];
+            fd.landmarks.relativeZ[i] = impl_->landmarkOutput[i*3+2] * lmScale;
         }
 
         // ---- 4. Per-track temporal filter ----

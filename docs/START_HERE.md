@@ -6,28 +6,39 @@ follow the links in order.
 
 ---
 
-## 30-second state (2026-07-03)
+## 30-second state (2026-07-04)
 
 Community AR is a Flutter face-AR plugin: a thin Dart API over a large
 C++/GLES/Metal core. It arrived **documented as Phases 0–3 complete but not
-building**; the C++ core has since been consolidated so it compiles, and the app
-now builds and runs.
+building**; it has since been consolidated, built, and brought up on a real
+device through four on-device debug iterations.
 
-- ✅ **Compiles:** all 25 platform-agnostic C++ TUs + the Android GLES/JNI layer.
-- ✅ **Builds & runs:** `flutter build apk --debug` produces an installable APK;
-  the app launches and requests camera permission.
-- 🟡 **Android GL/EGL pipeline is now built (Option A), but not runtime-verified.**
-  Kotlin owns a GL render thread + EGL context + a window surface from the Flutter
-  `SurfaceTexture`; the camera OES texture lives on that context; each frame
-  renders into fbo 0 with a `samplerExternalOES` shader + UV transform and
-  presents via `eglSwapBuffers` (`GlRenderPipeline.kt` + native display path).
-  Compiles & links; **the on-device verification checklist
-  ([`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md) §5) has NOT been run**
-  — no device/GPU/camera in the dev env. Orientation/mirror + display sizing still
-  need on-device tuning. **This is the next thing to verify on hardware.**
-- ⛔ **AR features (effects/perception) aren't wired to the platform.** The Kotlin
-  method channel handles only Phase 0 methods; no Phase 2/3 JNI; the render loop
-  never calls `renderFramePhase2()`; TFLite/models aren't set up.
+- ✅ **Compiles / builds / runs:** all platform-agnostic C++ TUs + Android
+  GLES/JNI; `flutter build apk --debug` produces an installable APK.
+- ✅ **Camera preview verified on hardware** (PRs #22–#25): live, upright,
+  un-mirrored, pinch-zoomable, survives backgrounding. Kotlin owns the GL
+  thread/EGL context (Option A, `GlRenderPipeline.kt`).
+- ✅ **AR path wired end-to-end** (PRs #27–#30, per
+  [`AR_INTEGRATION_SPEC.md`](AR_INTEGRATION_SPEC.md)): prebuilt TFLite AARs
+  (no Bazel; CPU-staged I/O), 7 models bundled + extracted on first launch,
+  OES→2D ingress → `renderFramePhase2` → present-blit, `setEffectGraph`
+  method channel, perception-stats HUD (`faces:` count is the acceptance
+  instrument).
+- ✅ **Four on-device debug iterations done** (PRs #31–#34): GLSL reserved
+  keyword broke recolor on strict drivers; `blit()` was an empty stub (beauty
+  delivered no pixels) + startup graph race; BlazeFace decoder was still the
+  scaffold stub → real SSD decode (`community_ar_phase1_api.cpp` created);
+  rasterizer VBO/shader extended-API stubs crashed on first detection →
+  implemented. **FaceMesh detects faces on-device.**
+- 🟡 **Open: PR #35** — landmark/iris coords are input-PIXEL units, not [0,1]
+  (found by audit): FaceMesh + iris outputs now normalized by the model input
+  size from the tensor spec; iris output tensor identified by shape ([1,15])
+  with checked reads (was silently processing zeros). **Next on-device run
+  should show lipstick + smoothing on the face.**
+- ⛔ **Still pending:** on-device iteration 5 (verify effects land correctly),
+  perception-quality pass (lip placement, mask edges, diverse faces per
+  `TESTING.md`), WP-D (beauty controls), rest of WP-E (debug overlays), live
+  device-rotation follow-up, iOS (design only, needs a Mac).
 
 > Honesty rule for this project: separate **"compiles"** from **"works."** Almost
 > nothing here is runtime-verified (no device, no TFLite, no iOS in the dev env).
@@ -63,24 +74,23 @@ now builds and runs.
 
 0. ✅ **Android GL/EGL pipeline → visible camera — DONE & verified on-device**
    (PRs #22–#25): live, upright, un-mirrored, zoomable, resumes after background.
-
-1. **AR feature integration (Phases 0–3) → see
-   [`AR_INTEGRATION_SPEC.md`](AR_INTEGRATION_SPEC.md).** The full plan: inventory
-   of every perception/effect feature, the render-loop integration architecture
-   (OES→2D ingress, `renderFramePhase2` + present-blit, model-dir plumbing), and
-   ordered work packages **WP-A…WP-E** (TFLite+models → render loop → effect graph
-   → beauty → perception diagnostics), each implementation-ready with acceptance
-   criteria. This is the spec to hand an implementer.
-
-   The old summary of the same work, for reference:
-   - **TFLite + models** (WP-A) — vendor TFLite (`tools/fetch_tflite.sh`), bundle/
-     extract models (`tools/fetch_models.sh`), plumb `modelDirectory`.
-   - **Phase 2/3 platform wiring** (WP-C/D) — Kotlin handlers + JNI for
-     `car_p2_graph_set` / `car_p3_*` / Phase 1 calls; render loop →
-     `renderFramePhase2()`.
-
-Each WP is its own device-iteration loop; do them in order (nothing later is
-testable until #1 works).
+1. ✅ **AR integration WP-A/B/C — DONE** (PRs #27–#30, spec:
+   [`AR_INTEGRATION_SPEC.md`](AR_INTEGRATION_SPEC.md)): prebuilt TFLite + model
+   bundling/extraction, AR render path (`car_p2_submit_frame_display`), effect
+   graph channel. Plus on-device debug iterations 1–4 (PRs #31–#34): recolor
+   shader fix, `blit()` + graph race, BlazeFace decoder, rasterizer VBO crash.
+2. **On-device iteration 5** — merge PR #35 (landmark/iris pixel-unit scaling),
+   rebuild, run on device. Acceptance: HUD `faces:1` persists, lipstick lands
+   on lips, beauty smoothing visible. Debugging technique that works:
+   llvm-symbolizer against the unstripped
+   `example/build/.../obj/arm64-v8a/libcommunity_ar_native.so`; the loadModel
+   tensor-shape log lines verify layout assumptions.
+3. **Perception-quality pass** — lip placement, mask edges, iris radii, then
+   the diverse-face checklist in [`../TESTING.md`](../TESTING.md).
+4. **WP-D (beauty controls) + rest of WP-E (debug overlays)** from the spec.
+5. **Live device-rotation follow-up**
+   ([`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md) §4); iOS bring-up
+   (needs a Mac).
 
 ---
 
@@ -88,9 +98,13 @@ testable until #1 works).
 
 - **No Android device, no camera/GPU runtime, no macOS/Xcode.** GL/EGL/Metal/JNI
   and perception are **not runtime-verifiable**; iOS can't be built.
-- **No vendored TensorFlow Lite.** TFLite is *optional* in the build (a stub
-  backend links when absent, so the app builds without it). Enabling it needs a
-  from-source Bazel build.
+- **TFLite is vendored from prebuilt Maven AARs** (PR #30,
+  `tools/fetch_tflite_prebuilt.sh` — no Bazel needed). The AARs lack the
+  GL-interop API, so the backend uses CPU-staged tensor I/O (GL interop stays
+  behind `-DCAR_TFLITE_GL_INTEROP=ON`). A stub backend still links if the AARs
+  are absent. Models live in gitignored `native/models/`
+  (`tools/fetch_models.sh`; direct `curl` works with the `ssl-no-revoke`
+  workaround).
 - **New Gradle/Maven downloads fail** (`PKIX path building failed` SSL/cert issue
   + intermittent TLS timeouts). **Do not add new pub/Gradle dependencies** —
   cached artifacts build fine. (This is why `permission_handler` was replaced

@@ -13,6 +13,7 @@
 // =============================================================================
 
 #include "iris_landmarker.h"
+#include "perception_log.h"
 #include "../render/render_context.h"
 #include <algorithm>
 #include <unordered_set>
@@ -64,7 +65,12 @@ EyeBounds computeEyeBounds(const FaceLandmarks& landmarks,
 struct IrisLandmarker::Impl {
     NeuralBackend* backend;
     std::unique_ptr<NeuralModel> model;
-    std::vector<float> outputBuf;       // raw model output
+    std::vector<float> outputBuf;       // the iris output tensor (5 pts × stride)
+
+    // Resolved from the model's tensor specs at initialize() (see there).
+    int   irisOutIdx = -1;              // which output tensor holds the 5 iris points
+    int   irisStride = 3;               // floats per point (x, y, z)
+    float invInputSize = 1.0f / 64.0f;  // pixel-units → [0,1] crop-local
 
     // Per-track filter banks, keyed by faceId
     std::unordered_map<int, IrisTrackState> trackStates;
@@ -83,10 +89,34 @@ IrisLandmarker::~IrisLandmarker() = default;
 bool IrisLandmarker::initialize() {
     impl_->model = impl_->backend->loadModel("iris_landmark");
     if (!impl_->model) return false;
-    // MediaPipe Iris: output is per-eye, 5 landmarks (10 floats x,y) plus 5
-    // for the contour normals — exact size varies by model version, so we
-    // allocate generously and only read what we need.
-    impl_->outputBuf.resize(32);
+
+    // MediaPipe iris_landmark emits TWO tensors whose order varies by
+    // converter version: eye contours + brows [1,213] (71 pts × xyz) and the
+    // iris [1,15] (5 pts × xyz). Identify the iris tensor by element count —
+    // reading output 0 blindly gets the contours on some conversions, and a
+    // read sized differently from the tensor fails TfLiteTensorCopyToBuffer's
+    // exact-size check silently, leaving a zeroed buffer.
+    const auto& outs = impl_->model->outputs();
+    for (size_t i = 0; i < outs.size(); ++i) {
+        const int n = outs[i].shape.totalElements();
+        if (n == 15) { impl_->irisOutIdx = (int)i; impl_->irisStride = 3; break; }
+        if (n == 10) { impl_->irisOutIdx = (int)i; impl_->irisStride = 2; }  // x,y-only variant
+    }
+    if (impl_->irisOutIdx < 0) {
+        CAR_PERC_LOGE_ONCE("iris_landmark: no 5-point iris output tensor found");
+        impl_->model.reset();
+        return false;
+    }
+    impl_->outputBuf.resize(
+        (size_t)outs[impl_->irisOutIdx].shape.totalElements());
+
+    // Coordinates are in PIXELS of the model input (64×64), per MediaPipe's
+    // TensorsToLandmarksCalculator — read the divisor from the input spec.
+    const auto& ins = impl_->model->inputs();
+    const float inputSize =
+        (!ins.empty() && ins[0].shape.rank >= 3 && ins[0].shape.dims[1] > 0)
+            ? (float)ins[0].shape.dims[1] : 64.0f;
+    impl_->invInputSize = 1.0f / inputSize;
     return true;
 }
 
@@ -127,16 +157,17 @@ bool IrisLandmarker::run(const TextureHandle& cameraTex,
         crop.mirrorX = false;   // left eye: model native orientation
 
         impl_->model->setInputTexture(0, cameraTex, crop);
-        if (impl_->model->run()) {
-            impl_->model->readOutput(0, impl_->outputBuf.data(),
-                                     impl_->outputBuf.size() * sizeof(float));
+        if (impl_->model->run() &&
+            impl_->model->readOutput(impl_->irisOutIdx, impl_->outputBuf.data(),
+                                     impl_->outputBuf.size() * sizeof(float))) {
 
-            // Convert crop-local [0,1] coords to image-normalized coords
+            // Model output is in input-pixel units; normalize to [0,1]
+            // crop-local, then convert to image-normalized coords.
             float contourBuf[10];  // 5 points × (x, y)
             float cx = 0, cy = 0;
             for (int i = 0; i < 5; ++i) {
-                float lx = impl_->outputBuf[i*2 + 0];
-                float ly = impl_->outputBuf[i*2 + 1];
+                float lx = impl_->outputBuf[i*impl_->irisStride + 0] * impl_->invInputSize;
+                float ly = impl_->outputBuf[i*impl_->irisStride + 1] * impl_->invInputSize;
                 float gx = (b.cx - b.halfSize) + lx * (b.halfSize * 2);
                 float gy = (b.cy - b.halfSize) + ly * (b.halfSize * 2);
                 contourBuf[i*2 + 0] = gx;
@@ -184,15 +215,17 @@ bool IrisLandmarker::run(const TextureHandle& cameraTex,
         crop.mirrorX = true;    // KEY: mirror the crop so the model sees a "left eye"
 
         impl_->model->setInputTexture(0, cameraTex, crop);
-        if (impl_->model->run()) {
-            impl_->model->readOutput(0, impl_->outputBuf.data(),
-                                     impl_->outputBuf.size() * sizeof(float));
+        if (impl_->model->run() &&
+            impl_->model->readOutput(impl_->irisOutIdx, impl_->outputBuf.data(),
+                                     impl_->outputBuf.size() * sizeof(float))) {
 
             float contourBuf[10];
             float cx = 0, cy = 0;
             for (int i = 0; i < 5; ++i) {
-                float lx_mirrored = impl_->outputBuf[i*2 + 0];
-                float ly          = impl_->outputBuf[i*2 + 1];
+                float lx_mirrored =
+                    impl_->outputBuf[i*impl_->irisStride + 0] * impl_->invInputSize;
+                float ly =
+                    impl_->outputBuf[i*impl_->irisStride + 1] * impl_->invInputSize;
 
                 // Un-mirror the X coordinate: model output is in mirrored
                 // crop space, so x' = 1 - x recovers the original orientation.

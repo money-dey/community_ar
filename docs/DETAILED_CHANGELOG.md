@@ -34,6 +34,40 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-04
 
+### Pre-emptive fifth-iteration fix — landmark coords are input-PIXEL units, not [0,1]
+- **Context:** #33/#34 merged; next on-device run should reach visible effects.
+  Auditing the deferred iris item ("output sizes [213]/[15] mismatched") found
+  a bigger, shared bug first: **MediaPipe landmark models emit coordinates in
+  pixels of their input tensor**, and MediaPipe's own
+  `TensorsToLandmarksCalculator` divides by the input size. Our converters
+  treated them as [0,1] crop-local. For the bundled 256×256
+  `face_landmarks_detector` every landmark would land ~256× outside the crop —
+  masks rasterized nowhere, lipstick invisible even with detection + rasterizer
+  now working. Found by code audit, so the *magnitude* is asserted from
+  MediaPipe's calculator config, not from a device log yet.
+- **Fix (face_landmarker.cpp):** scale x/y/z by `1/inputSize`, with the size
+  read from the model's input spec (256 for the bundled variant, 192 for
+  classic face_landmark) — shape-driven like the #33/#34 fixes, so both
+  variants work. *(Alternative rejected: runtime auto-detect "if coords > 2
+  assume pixels" — needless heuristic when the unit convention is documented
+  in MediaPipe and the divisor is in the tensor spec.)*
+- **Fix (iris_landmarker.cpp, the deferred item):** the code read output 0 as
+  five x,y pairs in [0,1]. Real `iris_landmark.tflite` emits TWO tensors in
+  converter-dependent order — contours+brows [1,213] (71×xyz) and iris [1,15]
+  (5×xyz), pixel units of the 64×64 input. Also `readOutput` (an exact-size
+  `TfLiteTensorCopyToBuffer`) failed silently against the 32-float scratch
+  buffer and the unchecked call processed stale zeros. Now: iris tensor
+  identified by element count (15, or 10 for an x,y-only variant) at
+  initialize, buffer sized from the spec, `readOutput` return checked,
+  stride-3 pixel-unit reads normalized by the input size. If no 5-point output
+  exists, initialization fails loudly (log-once) instead of feeding zeros.
+- **Shared `perception_log.h`:** iris_landmarker is the second user of
+  `CAR_PERC_LOGE_ONCE`, so the macros moved out of face_landmarker.cpp into a
+  shared header per the CLAUDE.md second-use-site convention.
+- **Verified:** NDK clang `-fsyntax-only` + `flutter build apk --debug`.
+  **Not runtime-verified** (no device); on-device acceptance = lipstick lands
+  on lips, HUD faces:1 persists. (PR #35)
+
 ### Fourth on-device iteration — rasterizer VBO/shader stubs crashed on first detection
 - **On-device result after #33:** SIGSEGV (null deref) on the GL thread at
   launch. The crash itself is the best news yet: it happens in the mask
