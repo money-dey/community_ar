@@ -34,6 +34,30 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-04
 
+
+### First on-device AR run — GLSL reserved-keyword fix + missing multiclass model
+- **On-device result (first run of the effect chain, from the #28+#30 branches):**
+  no lipstick, and **black viewport with Beauty on**. Logcat pinpointed it:
+  `L0003: Keyword 'input' is reserved` — the Oklab recolor fragment shader
+  (masked_recolor_effect.cpp) used `input` as a variable name. `input` is a
+  reserved keyword in GLSL ES; permissive drivers accept it, this device's
+  compiler rejects the whole shader → recolor program never links → every
+  frame throws GL_INVALID_OPERATION (the logged 0x502 spam).
+- **Fixes:** (1) renamed `input`→`srcColor` (audited every inline shader for
+  other reserved identifiers — `input`/`output`/`sample`/`filter`/`texture` —
+  this was the only hit); (2) `GlesShaderProgram` now tracks link status:
+  `use()` on an unlinked program logs ONCE and leaves the previous program
+  bound instead of raising per-frame GL errors that drown other failures;
+  (3) found the **default segmenter model was never fetched** —
+  `segmenter_backend_factory.cpp` loads `selfie_multiclass_256x256.tflite`
+  (source of beauty's face-skin mask); added it to `fetch_models.sh` and
+  fetched locally (~16 MB float32, no float16 variant published — blows the
+  old <15 MB budget; accepted for bring-up, slimming is a follow-up).
+- **Verification:** NDK clang on both TUs; `flutter build apk --debug` on this
+  branch (stub TFLite — the branch is off master; the model/TFLite bundling
+  arrives when #30 merges). Shader correctness on the strict compiler is
+  only provable on-device — retest needs #28 + #30 + this merged.
+
 ### WP-A complete — prebuilt TFLite (no Bazel) + CPU-staged I/O + model plumbing
 - **Change:** perception can now actually run on-device (pending runtime
   verification). Four pieces:
@@ -79,6 +103,7 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
   assets + per-ABI TFLite `.so`s packaged. **NOT runtime-verified:** model
   loading, inference, staging correctness, and performance all need the
   device.
+
 
 ## 2026-07-03
 

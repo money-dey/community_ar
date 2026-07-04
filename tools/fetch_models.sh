@@ -76,6 +76,18 @@ curl -fL --retry 3 -o selfie_segmenter.tflite \
   "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite"
 
 # -----------------------------------------------------------------------------
+# 5. Multiclass selfie segmenter — the DEFAULT segmenter backend
+#    (segmenter_backend_factory.cpp loads "selfie_multiclass_256x256"; it
+#    produces the face-skin/body-skin/hair/clothes channels the beauty
+#    pipeline consumes). ~16 MB float32 — no float16 variant published; this
+#    blows the original <15 MB model budget, accepted for bring-up (see
+#    DETAILED_CHANGELOG 2026-07-04; slimming is a later optimization).
+# -----------------------------------------------------------------------------
+echo "==> Downloading selfie_multiclass_256x256.tflite"
+curl -fL --retry 3 -o selfie_multiclass_256x256.tflite \
+  "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite"
+
+# -----------------------------------------------------------------------------
 # Summary + size check
 # -----------------------------------------------------------------------------
 echo
@@ -84,4 +96,5 @@ ls -lh *.tflite
 echo
 TOTAL=$(du -sh "$MODELS_DIR" | cut -f1)
 echo "==> Total models size: $TOTAL"
-echo "==> Target budget: <15 MB total"
+echo "==> Budget note: ~23 MB with the multiclass model (original target was"
+echo "    <15 MB); accepted for bring-up, slimming tracked as follow-up."

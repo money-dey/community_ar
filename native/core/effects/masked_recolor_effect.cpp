@@ -92,15 +92,19 @@ vec3 oklabToLinear(vec3 c) {
 }
 
 void main() {
-    vec4 input  = texture(uInputFrame, vUv);
+    // NOTE: `input` is a RESERVED keyword in GLSL ES — permissive drivers
+    // accept it as an identifier, strict ones reject the whole shader
+    // (seen on-device: "L0003: Keyword 'input' is reserved"), killing the
+    // recolor pass. Hence `srcColor`.
+    vec4 srcColor = texture(uInputFrame, vUv);
     float mask  = texture(uMask, vUv).r;
     float a     = mask * uOpacity;
 
     // Fast path: no mask coverage = passthrough (avoid pow() calls)
-    if (a < 0.001) { fragColor = input; return; }
+    if (a < 0.001) { fragColor = srcColor; return; }
 
-    // Convert input and target to Oklab
-    vec3 srcLin = srgbToLinear(input.rgb);
+    // Convert source and target to Oklab
+    vec3 srcLin = srgbToLinear(srcColor.rgb);
     vec3 tgtLin = srgbToLinear(uTargetColor);
     vec3 srcLab = linearToOklab(srcLin);
     vec3 tgtLab = linearToOklab(tgtLin);
@@ -118,7 +122,7 @@ void main() {
     vec3 outLin = oklabToLinear(vec3(L, aC, bC));
     // Clamp to [0,1] before sRGB conversion (Oklab can produce out-of-gamut colors)
     outLin = clamp(outLin, vec3(0.0), vec3(1.0));
-    fragColor = vec4(linearToSrgb(outLin), input.a);
+    fragColor = vec4(linearToSrgb(outLin), srcColor.a);
 }
 )GLSL";
 
