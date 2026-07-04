@@ -122,6 +122,22 @@ CAR_EXPORT void     car_p0_get_output_dimensions(CARSession* session,
 CAR_EXPORT CARStatus car_p0_set_test_mode(CARSession* session, CARTestMode mode);
 
 // -----------------------------------------------------------------------------
+// Model directory (AR integration, docs/AR_INTEGRATION_SPEC.md WP-A).
+//
+// Tells the session where the .tflite model files live on device (on Android:
+// filesDir/models after the plugin's first-launch asset extraction). Call
+// after car_p0_create and before the first frame that runs perception — the
+// neural backend captures the value when it is lazily created. Callable from
+// any thread; the string is copied.
+//
+// NEW symbol. CARPhase0Config is a shipped struct whose layout is
+// stability-bound (CLAUDE.md §2), so the model directory is an additive
+// setter rather than a new config field.
+// -----------------------------------------------------------------------------
+CAR_EXPORT CARStatus car_p0_set_model_directory(CARSession* session,
+                                                const char* modelDirectory);
+
+// -----------------------------------------------------------------------------
 // Diagnostics
 // -----------------------------------------------------------------------------
 typedef struct {

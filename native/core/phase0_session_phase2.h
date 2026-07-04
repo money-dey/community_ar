@@ -44,6 +44,12 @@ struct Phase0Session::Phase2Members {
     // thread drains the queue at the top of each frame.
     std::mutex                          queueMutex;
     std::queue<std::function<void()>>   pending;
+
+    // Model directory (car_p0_set_model_directory). Written from any thread
+    // before perception first runs; read once when the neural backend is
+    // lazily created on the render thread.
+    std::mutex                          cfgMutex;
+    std::string                         modelDirectory;
 };
 
 }  // namespace community_ar

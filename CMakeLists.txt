@@ -153,10 +153,31 @@ if(ANDROID)
     set(_car_tflite_inc "${CAR_TFLITE_DIR}/include")
     set(_car_tflite_libdir "${CAR_TFLITE_DIR}/lib/${ANDROID_ABI}")
 
-    find_library(CAR_TFLITE_C_LIB   tensorflowlite_c
-                 PATHS "${_car_tflite_libdir}" NO_DEFAULT_PATH)
-    find_library(CAR_TFLITE_GPU_LIB tensorflowlite_gpu_delegate
-                 PATHS "${_car_tflite_libdir}" NO_DEFAULT_PATH)
+    # Two vendoring layouts are accepted:
+    #   from-source (tools/fetch_tflite.sh + Bazel):
+    #     libtensorflowlite_c.so + libtensorflowlite_gpu_delegate.so
+    #     + the gpu/gl headers → enables zero-copy GL-interop tensor binding
+    #   prebuilt AAR (tools/fetch_tflite_prebuilt.sh, no Bazel):
+    #     libtensorflowlite_jni.so + libtensorflowlite_gpu_jni.so
+    #     → CPU-staged tensor I/O (GPU-accelerated inference, copies at the
+    #       tensor boundaries); the .so's are also copied to jniLibs/ so
+    #       Gradle packages them into the APK.
+    # Direct EXISTS checks, not find_library: the NDK toolchain re-roots
+    # find_library PATHS onto the sysroot (CMAKE_FIND_ROOT_PATH_MODE_LIBRARY
+    # ONLY) and caches NOTFOUND across builds — both silently defeat detection
+    # (observed: the stub was linked even with libs vendored).
+    unset(CAR_TFLITE_C_LIB)
+    unset(CAR_TFLITE_GPU_LIB)
+    foreach(_name tensorflowlite_c tensorflowlite_jni)
+        if(NOT CAR_TFLITE_C_LIB AND EXISTS "${_car_tflite_libdir}/lib${_name}.so")
+            set(CAR_TFLITE_C_LIB "${_car_tflite_libdir}/lib${_name}.so")
+        endif()
+    endforeach()
+    foreach(_name tensorflowlite_gpu_delegate tensorflowlite_gpu_jni)
+        if(NOT CAR_TFLITE_GPU_LIB AND EXISTS "${_car_tflite_libdir}/lib${_name}.so")
+            set(CAR_TFLITE_GPU_LIB "${_car_tflite_libdir}/lib${_name}.so")
+        endif()
+    endforeach()
 
     if(IS_DIRECTORY "${_car_tflite_inc}" AND CAR_TFLITE_C_LIB AND CAR_TFLITE_GPU_LIB)
         message(STATUS "Community AR: TensorFlow Lite found — building with perception (${ANDROID_ABI}).")
@@ -164,6 +185,19 @@ if(ANDROID)
         target_include_directories(community_ar_native PRIVATE "${_car_tflite_inc}")
         target_link_libraries(community_ar_native PRIVATE
             "${CAR_TFLITE_C_LIB}" "${CAR_TFLITE_GPU_LIB}")
+        # GL-interop tensor binding is an EXPLICIT opt-in, not auto-detected:
+        # the prebuilt AARs ship the gpu/gl *headers* but not the Bind*
+        # *symbols* (verified with llvm-nm), and those headers drag in abseil.
+        # Only enable this against a from-source TFLite build that exports
+        # TfLiteGpuDelegateBindGlTextureToTensor (tools/fetch_tflite.sh).
+        option(CAR_TFLITE_GL_INTEROP
+               "Zero-copy GL tensor binding (needs from-source TFLite)" OFF)
+        if(CAR_TFLITE_GL_INTEROP)
+            target_compile_definitions(community_ar_native PRIVATE CAR_TFLITE_GL_INTEROP=1)
+            message(STATUS "Community AR: TFLite GL-interop ENABLED (zero-copy tensor binding).")
+        else()
+            message(STATUS "Community AR: TFLite CPU-staged tensor I/O (GPU-accelerated inference).")
+        endif()
     else()
         message(WARNING
             "Community AR: TensorFlow Lite NOT vendored for ABI '${ANDROID_ABI}' "

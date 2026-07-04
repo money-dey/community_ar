@@ -129,6 +129,18 @@ Dependency order: **WP-A → WP-B → WP-C → WP-D → WP-E**. WP-A/B gate ever
 visible; WP-C is the first end-to-end AR effect; D and E layer on.
 
 ### WP-A — TFLite + models + model-directory plumbing *(gating)*
+> **Status: IMPLEMENTED** (branch `feat/android-tflite-prebuilt`) — via the
+> **prebuilt-AAR route, no Bazel**: `tools/fetch_tflite_prebuilt.sh` vendors the
+> Maven Central 2.16.1 binaries (C API symbols verified with llvm-nm; the
+> GL-interop Bind* symbols are absent, so `tflite_backend.cpp` stages tensor
+> I/O through CPU — GPU-delegate inference, copies only at tensor boundaries;
+> GL-interop kept behind `-DCAR_TFLITE_GL_INTEROP=ON` for a future from-source
+> build). Models bundle as plugin assets → first-launch extraction →
+> `car_p0_set_model_directory` (new symbol; `CARPhase0Config` unchanged). Also
+> implemented GLES `createFramebufferForTexture` — a pre-existing nullptr gap
+> that would have broken the whole effect chain. APK verified: DT_NEEDED on
+> both TFLite libs + 6 model assets. On-device model loading still unverified.
+
 **Goal:** the native neural backend can load a model on-device.
 **Files:** `tools/fetch_tflite.sh`, `third_party/tensorflow-lite/*`, root
 `CMakeLists.txt`, `native/core/ffi/community_ar_phase0_api.h` (add

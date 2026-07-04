@@ -41,3 +41,9 @@ migrate_working_dir/
 native/models/*.tflite
 native/models/*.task
 native/models/_task_extracted/
+
+# Vendored TensorFlow Lite (fetched via tools/fetch_tflite_prebuilt.sh or
+# built from source via tools/fetch_tflite.sh) — binaries/headers not committed
+third_party/tensorflow-lite/include/
+third_party/tensorflow-lite/lib/
+android/src/main/jniLibs/
