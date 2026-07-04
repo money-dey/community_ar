@@ -334,9 +334,35 @@ public:
         glBindVertexArray(0);
     }
 
-    void blit(const TextureHandle&, Framebuffer*) override {
-        // Use shader-based blit (drawFullscreenQuad with passthrough).
-        // Implemented at the Session layer for Phase 0.
+    // Shader-based texture→framebuffer copy. This was a stub ("implemented at
+    // the Session layer") — but it is load-bearing in six call sites: the
+    // effect graph's empty-graph camera copy, SkinSmooth's mid-band
+    // preservation, temporal-history seed/update, its FINAL output write, and
+    // its no-face passthrough. On-device the stub meant the beauty pipeline
+    // computed everything and then never delivered a pixel → black viewport.
+    void blit(const TextureHandle& src, Framebuffer* dst) override {
+        if (!dst || !src.valid()) return;
+        if (!blitShader_) {
+            static const char* kBlitVS = R"(#version 300 es
+                precision highp float;
+                layout(location = 0) in vec2 aPos;
+                layout(location = 1) in vec2 aUv;
+                out vec2 vUv;
+                void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUv = aUv; }
+            )";
+            static const char* kBlitFS = R"(#version 300 es
+                precision mediump float;
+                uniform sampler2D uTex;
+                in vec2 vUv;
+                out vec4 fragColor;
+                void main() { fragColor = texture(uTex, vUv); }
+            )";
+            blitShader_ = std::make_unique<GlesShaderProgram>(kBlitVS, kBlitFS);
+        }
+        bindFramebuffer(dst);
+        blitShader_->use();
+        blitShader_->bindTexture("uTex", src, 0);
+        drawFullscreenQuad(blitShader_.get());
     }
 
     void flush() override { glFlush(); }
@@ -446,6 +472,7 @@ private:
     GLuint quadVao_ = 0;
     GLuint quadVbo_ = 0;
     int maxTextureSize_ = 0;
+    std::unique_ptr<GlesShaderProgram> blitShader_;  // lazy; see blit()
 };
 
 // -----------------------------------------------------------------------------

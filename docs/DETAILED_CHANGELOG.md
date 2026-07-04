@@ -34,6 +34,31 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-04
 
+### Second on-device iteration — GLES blit() stub + startup graph race
+- **On-device result after #31:** shader errors gone, but Beauty → black
+  viewport; disabling Beauty (leaving Lips installed) restored the camera.
+  That localization was decisive: the chain + lips render fine → the black is
+  inside SkinSmooth's delivery path. Two root causes found by reading the
+  path:
+  1. **`GlesRenderContext::blit()` was an empty stub** ("implemented at the
+     Session layer") — but it is load-bearing in SIX call sites: the effect
+     graph's empty-graph camera copy, SkinSmooth's mid-band preservation,
+     temporal-history seed/update, its **final output write**
+     (`blit(scratch, outputFbo)`), and its no-face passthrough. The 9-pass
+     pipeline computed everything and never delivered a pixel. Implemented as
+     a lazy shader-based copy (passthrough program + fullscreen quad).
+     Corollary: the black-on-faces path implies **FaceMesh was detecting**
+     (hasFaces=true) — the model stack works.
+  2. **Startup race:** `CommunityARView` pushes its initial graph during
+     `initState`, before `createSession` completes → Kotlin returned
+     invalid-session and Dart's graceful catch swallowed it → the app's
+     default Beauty+Lips were never installed ("nothing changes" at startup;
+     the first slider touch was the first successful install). Fix: the
+     plugin stashes a pre-session graph and applies it in `createSession`;
+     `clearEffectGraph` clears the stash.
+- **Verification:** NDK clang + `flutter build apk --debug`. Runtime is
+  device-only, as ever: expected result is smoothing/lipstick live at app
+  start, no black on slider changes.
 
 ### First on-device AR run — GLSL reserved-keyword fix + missing multiclass model
 - **On-device result (first run of the effect chain, from the #28+#30 branches):**

@@ -62,6 +62,11 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private var pipeline: GlRenderPipeline? = null
     private var currentLens: String = "front"
 
+    // Effect graph pushed before the session existed — applied in
+    // createSession() (see setEffectGraph).
+    private var pendingGraphTypeIds: IntArray? = null
+    private var pendingGraphConfigs: Array<ByteArray>? = null
+
     // Activity + a pending permission result (one request in flight at a time).
     private var activity: Activity? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
@@ -103,6 +108,8 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                         "setEffectGraph failed (status=$st)", null)
                 }
                 "clearEffectGraph" -> {
+                    pendingGraphTypeIds = null
+                    pendingGraphConfigs = null
                     if (nativeSessionPtr != 0L) nativeClearEffectGraph(nativeSessionPtr)
                     result.success(null)
                 }
@@ -160,6 +167,19 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 nativeSetModelDirectory(nativeSessionPtr, dir)
                 Log.i(TAG, "Model directory: $dir")
             }
+            // Apply an effect graph that arrived before the session existed
+            // (the Dart widget installs its initial effects during initState,
+            // racing session creation — previously that first install was
+            // silently dropped, so the app's default effects never activated).
+            pendingGraphTypeIds?.let { ids ->
+                pendingGraphConfigs?.let { cfgs ->
+                    val st = nativeSetEffectGraph(nativeSessionPtr, ids, cfgs)
+                    Log.i(TAG, "Applied pre-session effect graph " +
+                        "(${ids.size} effects, status=$st)")
+                }
+            }
+            pendingGraphTypeIds = null
+            pendingGraphConfigs = null
         }
         return nativeSessionPtr
     }
@@ -261,10 +281,17 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     // CARStatus (0 = OK; 2 = invalid session; 3 = invalid argument).
     // -------------------------------------------------------------------------
     private fun setEffectGraph(call: MethodCall): Int {
-        if (nativeSessionPtr == 0L) return 2
         val typeIds = call.argument<List<Int>>("typeIds") ?: return 3
         val configs = call.argument<List<ByteArray>>("configs") ?: return 3
         if (typeIds.isEmpty() || typeIds.size != configs.size) return 3
+        if (nativeSessionPtr == 0L) {
+            // Session not created yet (Dart pushes its initial graph during
+            // initState, racing createSession). Stash it; createSession applies
+            // it, so the app's default effects actually activate.
+            pendingGraphTypeIds = typeIds.toIntArray()
+            pendingGraphConfigs = configs.toTypedArray()
+            return 0
+        }
         return nativeSetEffectGraph(
             nativeSessionPtr, typeIds.toIntArray(), configs.toTypedArray())
     }
