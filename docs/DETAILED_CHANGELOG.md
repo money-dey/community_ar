@@ -32,6 +32,54 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ---
 
+## 2026-07-04
+
+### WP-A complete — prebuilt TFLite (no Bazel) + CPU-staged I/O + model plumbing
+- **Change:** perception can now actually run on-device (pending runtime
+  verification). Four pieces:
+  1. **`tools/fetch_tflite_prebuilt.sh`** vendors the official Maven Central
+     2.16.1 AARs (runtime + GPU delegate) — headers + per-ABI `.so`s into
+     `third_party/tensorflow-lite/`, plus copies into `android/src/main/jniLibs/`
+     for APK packaging; fetches one header the AAR omits
+     (`core/c/registration_external.h`). All gitignored.
+  2. **`tflite_backend.cpp` reworked for CPU-staged tensor I/O** (the prebuilt
+     binaries don't export the GL-interop `Bind*` symbols — verified with
+     llvm-nm): the model-input crop is blitted on GPU (crop+resize+rotate+
+     mirror in one `CropResizeBlitter` pass, now `sampler2D` since WP-B's
+     ingress feeds it 2D), synchronously read back (≤256², documented
+     invariant-5 rationale), and copied into the tensor as float [0,1];
+     segmenter outputs upload back into the caller's mask texture inside
+     `bindOutputTexture` (same caller contract). GL-interop path preserved
+     behind `-DCAR_TFLITE_GL_INTEROP=ON` (explicit opt-in — the AAR ships the
+     gl *headers* without the *symbols*, so directory auto-detection was wrong
+     and is not used). Inference itself stays GPU-delegate-accelerated.
+  3. **GLES `createFramebufferForTexture` implemented** — the pre-existing
+     nullptr gap flagged in `render_context.h`; it is load-bearing for the
+     effect-chain ping-pong FBOs, the mask rasterizer, and all beauty targets,
+     i.e. effects could never have rendered without this.
+  4. **Model plumbing:** models bundle as plugin assets
+     (`build.gradle.kts` sourceSets → `native/models`), extracted to
+     `filesDir/models` on first launch (`extractModelsIfNeeded`, matching the
+     CLAUDE.md gotcha), path handed to native via **new symbol**
+     `car_p0_set_model_directory` (the shipped `CARPhase0Config` layout is
+     untouched per CLAUDE.md §2) → `BackendConfig.modelDirectory`.
+- **Why prebuilt over Bazel:** decision + trade-off analysis in the 2026-07-03
+  discussion — Bazel-from-source buys only the zero-copy GL binding; prebuilt
+  gives the full C API + GPU inference with ~2–5 ms staging cost inside the
+  3–13 ms budget headroom; reversible via the CMake option.
+- **Bugs caught by layered verification:** (a) CMake `find_library` silently
+  linked the stub even with libs vendored — NDK re-roots `PATHS` onto the
+  sysroot + caches NOTFOUND; replaced with direct `EXISTS` checks, confirmed
+  via `DT_NEEDED` inspection of the APK's `.so`. (b) the real backend never
+  defined the `extern "C" tflite_backend_invalidate_frame` hook the perception
+  pipeline links (only the stub did — this TU had never compiled before).
+- **Verification:** backend TU compiles against the real vendored headers (a
+  first); full `flutter build apk --debug` links; APK inspected —
+  `libcommunity_ar_native.so` `DT_NEEDED`s both TFLite libs, 6 `.tflite`
+  assets + per-ABI TFLite `.so`s packaged. **NOT runtime-verified:** model
+  loading, inference, staging correctness, and performance all need the
+  device.
+
 ## 2026-07-03
 
 

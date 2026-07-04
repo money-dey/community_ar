@@ -69,6 +69,11 @@ public:
     // Set which trivial test shader to run
     CARStatus setTestMode(CARTestMode mode);
 
+    // Where the .tflite models live on device. Stored (copied) and handed to
+    // the neural backend when it is lazily created — call before the first
+    // frame that runs perception. Any thread.
+    CARStatus setModelDirectory(const char* dir);
+
     void getStats(CARPhase0Stats* outStats) const;
 
     // ---- Phase 2 integration ----

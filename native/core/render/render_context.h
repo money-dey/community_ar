@@ -160,11 +160,11 @@ public:
     // Implementation status at consolidation time:
     //   - drawTriangles / createMRTFramebuffer .... implemented by GLES + Metal
     //                                               (in *_phase3_updates files)
+    //   - createFramebufferForTexture ............. implemented by GLES (WP-A;
+    //     load-bearing for the effect-chain ping-pong FBOs, the mask
+    //     rasterizer, and beauty targets). Metal still returns nullptr.
     //   - all others .............................. NOT yet implemented on any
     //                                               backend; default stubs here.
-    //     Notably createFramebufferForTexture is required by the effect-chain
-    //     ping-pong FBOs and beauty resource allocation but has no backend
-    //     implementation — a pre-existing gap surfaced by this consolidation.
     // -------------------------------------------------------------------------
     virtual std::unique_ptr<VertexBuffer> createVertexBuffer(
         const void* data, size_t bytes) { return nullptr; }

@@ -263,6 +263,34 @@ public:
         return std::make_unique<GlesShaderProgram>(vs, fs);
     }
 
+    // Wrap an EXISTING texture in a framebuffer so it can be rendered into.
+    // Load-bearing for the effect chain (ping-pong FBOs), the mask rasterizer,
+    // and the beauty pipeline's intermediate targets — all of which allocate
+    // their own textures and render into them. This was the "pre-existing gap"
+    // flagged in render_context.h at consolidation time: every caller received
+    // the default-nullptr and the effect chain could never have rendered.
+    // The returned framebuffer owns only the FBO object; the texture stays
+    // caller-owned (the adopt constructor's colorTexture() is intentionally
+    // invalid — callers sample their own texture handle).
+    std::unique_ptr<Framebuffer> createFramebufferForTexture(
+            TextureHandle& tex) override {
+        if (!tex.valid()) return nullptr;
+        GLuint fbo = 0;
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D,
+                               static_cast<GLuint>(tex.nativeHandle()), 0);
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            LOGE("createFramebufferForTexture: incomplete (0x%x)", status);
+            glDeleteFramebuffers(1, &fbo);
+            return nullptr;
+        }
+        return std::make_unique<GlesFramebuffer>(fbo, tex.width(), tex.height());
+    }
+
     void bindFramebuffer(Framebuffer* fbo) override {
         if (fbo) {
             glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(fbo->nativeHandle()));

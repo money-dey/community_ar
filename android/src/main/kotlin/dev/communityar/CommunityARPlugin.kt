@@ -150,7 +150,51 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         }
         nativeSessionPtr = gl.nativeSessionPtr
         Log.i(TAG, "Native session created: $nativeSessionPtr")
+
+        // Hand native the on-device model path so perception can load models
+        // (extracted from bundled assets on first launch). Must happen before
+        // the first frame that runs perception; the native side copies the
+        // string and reads it when the neural backend is lazily created.
+        if (nativeSessionPtr != 0L) {
+            extractModelsIfNeeded()?.let { dir ->
+                nativeSetModelDirectory(nativeSessionPtr, dir)
+                Log.i(TAG, "Model directory: $dir")
+            }
+        }
         return nativeSessionPtr
+    }
+
+    // -------------------------------------------------------------------------
+    // Models: the MediaPipe .tflite files are bundled as plugin assets (see
+    // android/build.gradle.kts sourceSets → native/models) and extracted to
+    // filesDir/models on first launch — TFLite loads from a real file path
+    // (see the "Model file paths differ between platforms" gotcha, CLAUDE.md).
+    // Idempotent: existing non-empty files are kept. Returns the directory, or
+    // null when no models are bundled (perception then stays inactive).
+    // -------------------------------------------------------------------------
+    private fun extractModelsIfNeeded(): String? {
+        return try {
+            val outDir = java.io.File(appContext.filesDir, "models")
+            if (!outDir.exists()) outDir.mkdirs()
+            val names = appContext.assets.list("")
+                ?.filter { it.endsWith(".tflite") } ?: emptyList()
+            if (names.isEmpty()) {
+                Log.w(TAG, "No .tflite models bundled — perception inactive " +
+                    "(run tools/fetch_models.sh before building)")
+                return null
+            }
+            for (name in names) {
+                val outFile = java.io.File(outDir, name)
+                if (outFile.exists() && outFile.length() > 0L) continue
+                appContext.assets.open(name).use { input ->
+                    outFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+            outDir.absolutePath
+        } catch (e: Throwable) {
+            Log.e(TAG, "Model extraction failed", e)
+            null
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -329,6 +373,7 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     // JNI declarations — implemented in jni_bridge.cpp
     // -------------------------------------------------------------------------
     private external fun nativeCreateSession(flutterSurfaceTexture: SurfaceTexture): Long
+    private external fun nativeSetModelDirectory(ptr: Long, dir: String)
     private external fun nativeDestroySession(ptr: Long)
     private external fun nativeSubmitFrame(ptr: Long, textureHandle: Long,
                                            width: Int, height: Int,
