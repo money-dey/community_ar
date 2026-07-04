@@ -38,13 +38,25 @@ RenderContext* Phase0Session::renderContext() {
     return ctx_.get();
 }
 
+CARStatus Phase0Session::setModelDirectory(const char* dir) {
+    if (!dir) return CAR_STATUS_INVALID_ARGUMENT;
+    std::lock_guard<std::mutex> lock(p2_->cfgMutex);
+    p2_->modelDirectory = dir;
+    return CAR_STATUS_OK;
+}
+
 NeuralBackend* Phase0Session::neuralBackend() {
     if (!p2_->neuralBackend) {
         BackendConfig bc;
         bc.renderContext = ctx_.get();
-        // NOTE: CARPhase0Config carries no model directory, so bc.modelDirectory
-        // is left empty here. Device bring-up must supply the model path before
-        // any model can actually load — see the session-integration follow-up.
+        // Supplied by the platform via car_p0_set_model_directory (Android:
+        // filesDir/models after first-launch asset extraction). If it's still
+        // empty here, model loads fail with a clear per-file log in the
+        // backend — perception stays inactive rather than crashing.
+        {
+            std::lock_guard<std::mutex> lock(p2_->cfgMutex);
+            bc.modelDirectory = p2_->modelDirectory;
+        }
 #if defined(__ANDROID__)
         p2_->neuralBackend = createTfliteBackend(bc);
 #elif defined(__APPLE__)

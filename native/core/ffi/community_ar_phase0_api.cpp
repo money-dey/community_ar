@@ -92,6 +92,13 @@ CAR_EXPORT CARStatus car_p0_set_test_mode(CARSession* session, CARTestMode mode)
     return s->setTestMode(mode);
 }
 
+CAR_EXPORT CARStatus car_p0_set_model_directory(CARSession* session,
+                                                const char* modelDirectory) {
+    auto* s = asSession(session);
+    if (!s) return CAR_STATUS_INVALID_HANDLE;
+    return s->setModelDirectory(modelDirectory);
+}
+
 CAR_EXPORT void car_p0_get_stats(CARSession* session, CARPhase0Stats* outStats) {
     auto* s = asSession(session);
     if (s) s->getStats(outStats);

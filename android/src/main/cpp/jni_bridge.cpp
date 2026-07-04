@@ -32,6 +32,17 @@ Java_dev_communityar_CommunityARPlugin_nativeCreateSession(
 }
 
 JNIEXPORT void JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeSetModelDirectory(
+        JNIEnv* env, jobject, jlong ptr, jstring dir) {
+    if (!dir) return;
+    const char* utf = env->GetStringUTFChars(dir, nullptr);
+    if (utf) {
+        car_p0_set_model_directory(reinterpret_cast<CARSession*>(ptr), utf);
+        env->ReleaseStringUTFChars(dir, utf);
+    }
+}
+
+JNIEXPORT void JNICALL
 Java_dev_communityar_CommunityARPlugin_nativeDestroySession(
         JNIEnv*, jobject, jlong ptr) {
     car_p0_destroy(reinterpret_cast<CARSession*>(ptr));

@@ -38,6 +38,11 @@ android {
     sourceSets {
         getByName("main") {
             java.srcDirs("src/main/kotlin")
+            // Bundle the fetched MediaPipe models as assets; the plugin
+            // extracts them to filesDir/models on first launch (TFLite needs a
+            // real file path). Empty if tools/fetch_models.sh hasn't run — the
+            // app still builds, perception just stays inactive.
+            assets.srcDirs("../native/models")
         }
     }
 
