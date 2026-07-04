@@ -214,6 +214,42 @@ private:
 };
 
 // -----------------------------------------------------------------------------
+// GLES VertexBuffer — RAII VBO wrapper (extended API; the default-nullptr
+// stubs crashed the mask rasterizer the first time a face was detected).
+// -----------------------------------------------------------------------------
+class GlesVertexBuffer : public VertexBuffer {
+public:
+    GlesVertexBuffer(const void* data, size_t bytes, GLenum usage)
+        : size_(bytes), usage_(usage) {
+        glGenBuffers(1, &vbo_);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, data, usage);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+    ~GlesVertexBuffer() override { if (vbo_) glDeleteBuffers(1, &vbo_); }
+
+    uint64_t nativeHandle() const override { return vbo_; }
+    size_t   sizeBytes() const override { return size_; }
+
+    // Re-fill (used by uploadDynamicVertexBuffer); grows the store if needed.
+    void upload(const void* data, size_t bytes) {
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+        if (bytes > size_) {
+            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, data, usage_);
+            size_ = bytes;
+        } else {
+            glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)bytes, data);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
+private:
+    GLuint vbo_ = 0;
+    size_t size_ = 0;
+    GLenum usage_;
+};
+
+// -----------------------------------------------------------------------------
 // GLES RenderContext
 // -----------------------------------------------------------------------------
 class GlesRenderContext : public RenderContext {
@@ -314,6 +350,52 @@ public:
             glViewport(0, 0, fbo->width(), fbo->height());
         } else {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+    }
+
+    // ---- Extended API: vertex buffers + rasterizer shader + blending ----
+    // These were default-nullptr stubs; the mask rasterizer null-dereffed the
+    // first time a face was detected on-device (mask_rasterizer.cpp:197).
+
+    std::unique_ptr<VertexBuffer> createVertexBuffer(
+            const void* data, size_t bytes) override {
+        return std::make_unique<GlesVertexBuffer>(data, bytes, GL_STATIC_DRAW);
+    }
+
+    std::unique_ptr<VertexBuffer> createDynamicVertexBuffer(
+            size_t maxBytes) override {
+        return std::make_unique<GlesVertexBuffer>(nullptr, maxBytes,
+                                                  GL_DYNAMIC_DRAW);
+    }
+
+    void uploadDynamicVertexBuffer(VertexBuffer* vbo, const void* data,
+                                   size_t bytes) override {
+        if (vbo && data && bytes) {
+            static_cast<GlesVertexBuffer*>(vbo)->upload(data, bytes);
+        }
+    }
+
+    // On GLES the vertex layout is applied at draw time (drawTriangles sets up
+    // the rasterizer's pos-2f + alpha-1f attribs), so a "shader with a vertex
+    // format" is just a shader program. Per-instance attributes are NOT
+    // supported (drawInstancedQuads remains a stub); the only current caller
+    // (mask rasterizer) uses perInstanceStride = 0.
+    std::unique_ptr<ShaderProgram> createInstancedShader(
+            const std::string& vs, const std::string& fs,
+            const InstancedVertexFormat& /*fmt*/) override {
+        return std::make_unique<GlesShaderProgram>(vs, fs);
+    }
+
+    // ADDITIVE blending, deliberately: the only consumer is the mask
+    // rasterizer, whose overlapping fan triangles are expected to accumulate
+    // ("internally hot" mask clamped by smoothstep — see the concave-contour
+    // gotcha in CLAUDE.md). Classic src-alpha blending would break that.
+    void enableAlphaBlending(bool enable) override {
+        if (enable) {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_ONE, GL_ONE);
+        } else {
+            glDisable(GL_BLEND);
         }
     }
 

@@ -34,6 +34,33 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-04
 
+### Fourth on-device iteration — rasterizer VBO/shader stubs crashed on first detection
+- **On-device result after #33:** SIGSEGV (null deref) on the GL thread at
+  launch. The crash itself is the best news yet: it happens in the mask
+  rasterizer **the first time a face is ever detected** — proof the BlazeFace
+  decoder works end-to-end. Symbolized locally against the unstripped debug
+  `.so` (llvm-symbolizer; frame #07's exported symbol matched, validating the
+  offsets): `mask_rasterizer.cpp:197 rasterShader_->use()` ←
+  MaskedRecolor::prepare (lips contour rasterization).
+- **Root cause:** `createInstancedShader` / `createDynamicVertexBuffer` /
+  `uploadDynamicVertexBuffer` were still default-nullptr/no-op extended-API
+  stubs (same landmine class as `blit()`/`createFramebufferForTexture`).
+  Implemented for GLES: `GlesVertexBuffer` (RAII VBO, grow-on-upload),
+  instanced-shader = plain program (GLES applies the pos2f+alpha1f layout in
+  `drawTriangles`; per-instance attrs remain unsupported),
+  `enableAlphaBlending` = ADDITIVE (GL_ONE, GL_ONE — the mask accumulates
+  overlapping fan triangles per the concave-contour gotcha). Also added a
+  null-guard in the rasterizer (degrade to empty mask, never crash).
+- **Second fix from the new shape logs:** the bundled FaceMesh emits **478
+  points ([1,1,1,1434])**, not 468 (1404) — the hardcoded read failed its
+  size check silently → zeroed landmarks. Landmark reads are now sized from
+  the model's output spec (first 468 points used); blendshape output is
+  identified by its 52-float size instead of assumed at index 1; failures
+  log once. (Iris output sizes [213]/[15] look mismatched too — deferred to
+  the perception-quality pass; zeros no-op, don't crash.)
+- **Verification:** NDK clang ×3 + full APK build/link. Acceptance on-device:
+  no crash, HUD `faces: 1`, lipstick + smoothing visible.
+
 ### Third on-device iteration — the BlazeFace decoder was still a stub
 - **On-device result after #32:** no black, models load (log confirms
   face_detector/landmarker/iris with the GPU delegate), graph installs at
