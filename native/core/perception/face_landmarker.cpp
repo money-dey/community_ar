@@ -17,7 +17,23 @@
 #include "face_landmarker.h"
 #include "../render/render_context.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+
+#if defined(__ANDROID__)
+#include <android/log.h>
+#define CAR_PERC_LOGE(...) \
+    __android_log_print(ANDROID_LOG_ERROR, "CommunityAR-Perc", __VA_ARGS__)
+#else
+#define CAR_PERC_LOGE(...) ((void)0)
+#endif
+// Perception runs every frame; a persistent failure must log once, not spam
+// (each call site gets its own static flag).
+#define CAR_PERC_LOGE_ONCE(...)                                     \
+    do {                                                            \
+        static bool _logged = false;                                \
+        if (!_logged) { _logged = true; CAR_PERC_LOGE(__VA_ARGS__); } \
+    } while (0)
 
 namespace community_ar {
 
@@ -46,7 +62,8 @@ struct FaceLandmarker::Impl {
     std::unordered_map<int, TrackState> trackStates;
 
     // Scratch buffers (reused frame-to-frame)
-    std::vector<float> detectorOutput;    // BlazeFace raw output
+    std::vector<float> detectorOutput;    // BlazeFace regressors [N, 16]
+    std::vector<float> detectorScores;    // BlazeFace scores [N, 1]
     std::vector<float> landmarkOutput;    // 468 * 3 per face
     std::vector<float> blendshapeOutput;  // 52 per face
 
@@ -79,23 +96,113 @@ bool FaceLandmarker::initialize() {
 
 namespace {
 
-// Decode BlazeFace output into DetectedFace boxes. The model emits raw
-// anchor offsets + confidence scores; we apply sigmoid + NMS here.
+// Decode BlazeFace output into DetectedFace boxes — the real implementation
+// (the long-stubbed version here returned {} unconditionally, which is why
+// no face was ever detected on-device; see the CLAUDE.md gotcha).
 //
-// This is a compact reimplementation of MediaPipe's TensorsToDetections
-// step. Real MediaPipe uses precomputed anchors; we hardcode them based on
-// the BlazeFace short-range configuration (the standard variant).
-std::vector<DetectedFace> decodeBlazeFaceOutput(
-        const float* /*rawOutput*/, int /*numAnchors*/) {
-    // For the scaffold we return a stub. Production version:
-    //   - Read 2 output tensors: bboxes (N x 16: x,y,w,h + 6 keypoints + ...)
-    //                            scores (N x 1 confidence)
-    //   - Apply sigmoid to scores
-    //   - Filter by min confidence (e.g. 0.5)
-    //   - Decode bboxes via the anchor table
-    //   - Run non-max suppression (IoU > 0.3)
-    //   - Return top-K boxes
-    return {};
+// Compact reimplementation of MediaPipe's SsdAnchorsCalculator +
+// TensorsToDetections for the BlazeFace short-range configuration:
+//   strides {8, 16, 16, 16}, fixed_anchor_size, interpolated aspect 1.0
+//   → 2 anchors/cell on the stride-8 grid, the three stride-16 layers share
+//     one grid at 6/cell. For a 128×128 input: 16·16·2 + 8·8·6 = 896 anchors
+//   (if the model reports a different count, the variant doesn't match this
+//   config — see the CLAUDE.md "896 anchors" gotcha).
+// The regressor tensor is [N,16]: box (dx, dy, w, h in input-pixel units,
+// anchor-relative) + 6 keypoints (unused here). x/y/w/h scale = input size.
+void buildShortRangeAnchors(int inputSize,
+                            std::vector<std::pair<float, float>>& out) {
+    out.clear();
+    const int strides[4] = {8, 16, 16, 16};
+    int i = 0;
+    while (i < 4) {
+        const int stride = strides[i];
+        int same = 0;
+        while (i + same < 4 && strides[i + same] == stride) same++;
+        const int grid = inputSize / stride;
+        const int anchorsPerCell = 2 * same;
+        for (int y = 0; y < grid; ++y) {
+            for (int x = 0; x < grid; ++x) {
+                for (int a = 0; a < anchorsPerCell; ++a) {
+                    out.emplace_back((x + 0.5f) / grid, (y + 0.5f) / grid);
+                }
+            }
+        }
+        i += same;
+    }
+}
+
+float boxIoU(const DetectedFace& a, const DetectedFace& b) {
+    const float x1 = std::max(a.x, b.x);
+    const float y1 = std::max(a.y, b.y);
+    const float x2 = std::min(a.x + a.w, b.x + b.w);
+    const float y2 = std::min(a.y + a.h, b.y + b.h);
+    const float inter = std::max(0.0f, x2 - x1) * std::max(0.0f, y2 - y1);
+    const float uni = a.w * a.h + b.w * b.h - inter;
+    return uni > 0.0f ? inter / uni : 0.0f;
+}
+
+std::vector<DetectedFace> decodeBlazeFaceOutput(const float* regressors,
+                                                const float* scores,
+                                                int numAnchors,
+                                                int inputSize) {
+    static std::vector<std::pair<float, float>> anchors;  // render thread only
+    static int anchorsBuiltFor = 0;
+    if (anchorsBuiltFor != inputSize) {
+        buildShortRangeAnchors(inputSize, anchors);
+        anchorsBuiltFor = inputSize;
+    }
+    if ((int)anchors.size() != numAnchors) {
+        CAR_PERC_LOGE_ONCE(
+            "BlazeFace anchor mismatch: model has %d, config yields %zu "
+            "(input %d) — wrong model variant?",
+            numAnchors, anchors.size(), inputSize);
+        return {};
+    }
+
+    constexpr float kMinScore = 0.5f;   // post-sigmoid
+    constexpr float kNmsIoU   = 0.3f;
+    const float invScale = 1.0f / (float)inputSize;
+
+    std::vector<DetectedFace> cands;
+    for (int i = 0; i < numAnchors; ++i) {
+        float logit = scores[i];
+        logit = std::max(-80.0f, std::min(80.0f, logit));
+        const float score = 1.0f / (1.0f + std::exp(-logit));
+        if (score < kMinScore) continue;
+
+        const float* r = regressors + (size_t)i * 16;
+        const float cx = r[0] * invScale + anchors[i].first;
+        const float cy = r[1] * invScale + anchors[i].second;
+        const float w  = r[2] * invScale;
+        const float h  = r[3] * invScale;
+        if (w <= 0.0f || h <= 0.0f) continue;
+
+        DetectedFace d;
+        d.x = cx - w * 0.5f;
+        d.y = cy - h * 0.5f;
+        d.w = w;
+        d.h = h;
+        d.confidence = score;
+        cands.push_back(d);
+    }
+
+    // Greedy NMS, highest confidence first.
+    std::sort(cands.begin(), cands.end(),
+              [](const DetectedFace& a, const DetectedFace& b) {
+                  return a.confidence > b.confidence;
+              });
+    std::vector<DetectedFace> kept;
+    for (const auto& c : cands) {
+        bool overlaps = false;
+        for (const auto& k : kept) {
+            if (boxIoU(c, k) > kNmsIoU) { overlaps = true; break; }
+        }
+        if (!overlaps) {
+            kept.push_back(c);
+            if (kept.size() >= 10) break;
+        }
+    }
+    return kept;
 }
 
 }  // anonymous namespace
@@ -112,15 +219,52 @@ bool FaceLandmarker::run(const TextureHandle& cameraTex,
     CameraInputRect detRect;
     detRect.x = 0; detRect.y = 0;
     detRect.width = imageWidth; detRect.height = imageHeight;
+    // MediaPipe's face_detection preprocessing normalizes to [-1, 1]
+    // (FaceMesh and Iris take [0, 1]); without this the detector sees a
+    // shifted input distribution and scores collapse below threshold.
+    detRect.signedInput = true;
     impl_->detectorModel->setInputTexture(0, cameraTex, detRect);
     if (!impl_->detectorModel->run()) return false;
 
-    impl_->detectorOutput.resize(896 * 17);  // typical BlazeFace short-range shape
-    impl_->detectorModel->readOutput(0, impl_->detectorOutput.data(),
-        impl_->detectorOutput.size() * sizeof(float));
+    // The model emits TWO tensors — regressors [1, N, 16] and scores
+    // [1, N, 1] — whose order varies by converter version, so identify them
+    // by shape. (The old code read a single hardcoded 896×17 buffer; the
+    // size check inside readOutput failed silently and the decode always ran
+    // on zeros.)
+    const auto& detOuts = impl_->detectorModel->outputs();
+    int regIdx = -1, scoreIdx = -1, numAnchors = 0;
+    for (size_t i = 0; i < detOuts.size(); ++i) {
+        const auto& sh = detOuts[i].shape;
+        const int channels = sh.rank >= 3 ? sh.dims[2] : 0;
+        if (channels == 16)     { regIdx = (int)i; numAnchors = sh.dims[1]; }
+        else if (channels == 1) { scoreIdx = (int)i; }
+    }
+    if (regIdx < 0 || scoreIdx < 0 || numAnchors <= 0) {
+        CAR_PERC_LOGE_ONCE(
+            "face_detector output layout unrecognized (%zu outputs) — "
+            "expected [1,N,16] + [1,N,1]", detOuts.size());
+        return false;
+    }
 
-    std::vector<DetectedFace> detections =
-        decodeBlazeFaceOutput(impl_->detectorOutput.data(), 896);
+    impl_->detectorOutput.resize((size_t)numAnchors * 16);
+    impl_->detectorScores.resize((size_t)numAnchors);
+    if (!impl_->detectorModel->readOutput(regIdx, impl_->detectorOutput.data(),
+            impl_->detectorOutput.size() * sizeof(float)) ||
+        !impl_->detectorModel->readOutput(scoreIdx, impl_->detectorScores.data(),
+            impl_->detectorScores.size() * sizeof(float))) {
+        CAR_PERC_LOGE_ONCE("face_detector readOutput failed (N=%d)", numAnchors);
+        return false;
+    }
+
+    // Detector input size (square) from the input tensor [1, H, W, C].
+    const auto& detIns = impl_->detectorModel->inputs();
+    const int detInputSize =
+        (!detIns.empty() && detIns[0].shape.rank >= 3 && detIns[0].shape.dims[1] > 0)
+            ? detIns[0].shape.dims[1] : 128;
+
+    std::vector<DetectedFace> detections = decodeBlazeFaceOutput(
+        impl_->detectorOutput.data(), impl_->detectorScores.data(),
+        numAnchors, detInputSize);
 
     // Cap detections to maxFaces (largest-area first)
     if ((int)detections.size() > impl_->maxFaces) {

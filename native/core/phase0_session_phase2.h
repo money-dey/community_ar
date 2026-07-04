@@ -20,6 +20,7 @@
 #include "perception/perception_pipeline.h"
 #include "ml/neural_backend.h"
 #include "render/render_context.h"
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -50,6 +51,12 @@ struct Phase0Session::Phase2Members {
     // lazily created on the render thread.
     std::mutex                          cfgMutex;
     std::string                         modelDirectory;
+
+    // Perception stats snapshot — written by the render thread each AR frame,
+    // read by the platform thread (car_p1_get_perception_stats).
+    std::atomic<int>   statFacesDetected{0};
+    std::atomic<float> statSkinLuma{0.0f};
+    std::atomic<int>   statSkinValid{0};
 };
 
 }  // namespace community_ar

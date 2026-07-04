@@ -63,6 +63,11 @@ struct CameraInputRect {
     int width = 0, height = 0;
     int rotationDeg = 0;     // 0, 90, 180, 270
     bool mirrorX = false;    // for front-facing camera
+    // Input value range the model was trained on: false → [0, 1] (FaceMesh,
+    // Iris, segmenters), true → [-1, 1] (MediaPipe face_detection). Applies to
+    // float input tensors on the CPU-staged path; the GL-binding path always
+    // samples [0, 1], so signed models are only correct via CPU staging.
+    bool signedInput = false;
 };
 
 // -----------------------------------------------------------------------------
