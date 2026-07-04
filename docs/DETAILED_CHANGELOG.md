@@ -34,6 +34,39 @@ Entry format: `PR #N — title (date, commit) · Change · Options · Decision &
 
 ## 2026-07-04
 
+### Third on-device iteration — the BlazeFace decoder was still a stub
+- **On-device result after #32:** no black, models load (log confirms
+  face_detector/landmarker/iris with the GPU delegate), graph installs at
+  startup — but no effects and no overlays. Root causes:
+  1. **`decodeBlazeFaceOutput` was STILL the scaffold stub returning `{}`
+     unconditionally** — the exact gotcha CLAUDE.md warned about; the "Phase 1
+     decoder fix" never actually landed. Zero faces was deterministic. Wrote
+     the real decoder: SSD anchors for the short-range config (strides
+     {8,16,16,16}, fixed_anchor_size → 896 anchors at 128², count verified
+     against the model with a log), sigmoid + 0.5 threshold, greedy NMS
+     (IoU 0.3).
+  2. **The detection read assumed one 896×17 tensor**; the model emits TWO
+     ([1,N,16] regressors + [1,N,1] scores) — the readOutput size check
+     failed and the return value was ignored, so decode ran on zeros. Now
+     shape-driven (outputs identified by channel count), both reads checked,
+     log-once on failure.
+  3. **Input range:** MediaPipe face_detection is trained on [-1,1] (FaceMesh/
+     Iris on [0,1]). Added `CameraInputRect::signedInput`; the CPU-staged
+     backend honors it; the detector sets it.
+  4. **Debug overlays doing nothing is EXPECTED** — WP-E was never wired.
+     Landed the first slice: `community_ar_phase1_api.cpp` **did not exist**
+     (declarations only — another consolidation gap, invisible until the first
+     reference failed to link). Implemented `car_p1_get_perception_stats` for
+     real (atomic snapshot in the session, updated per AR frame → the HUD's
+     `facesDetected` is now live) + JNI/Kotlin `getPerceptionStats`; the other
+     three car_p1_* calls are accepted-but-inert with a log-once until full
+     WP-E. Also: loadModel now logs each model's tensor shapes (one line) —
+     the on-device instrument for layout assumptions.
+- **Verification:** NDK clang on all changed TUs; `flutter build apk --debug`
+  links (caught that the phase1 ABI had no implementation file — added to
+  CMake). Detection quality/thresholds are device-verifiable only; the HUD
+  faces count is the acceptance signal.
+
 ### Second on-device iteration — GLES blit() stub + startup graph race
 - **On-device result after #31:** shader errors gone, but Beauty → black
   viewport; disabling Beauty (leaving Lips installed) restored the camera.

@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "ffi/community_ar_phase0_api.h"
+#include "ffi/community_ar_phase1_api.h"  // includes phase 0; CARPerceptionStats
 #include "render/render_context.h"
 #include <memory>
 #include <atomic>
@@ -73,6 +73,12 @@ public:
     // the neural backend when it is lazily created — call before the first
     // frame that runs perception. Any thread.
     CARStatus setModelDirectory(const char* dir);
+
+    // Lock-free snapshot of the latest perception results (facesDetected,
+    // skin luma) — written on the render thread at the end of each AR frame,
+    // readable from the platform channel thread. Fields the pipeline doesn't
+    // surface yet (per-model inference times) read as 0.
+    void getPerceptionStatsSnapshot(CARPerceptionStats* outStats) const;
 
     void getStats(CARPhase0Stats* outStats) const;
 

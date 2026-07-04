@@ -45,6 +45,19 @@ CARStatus Phase0Session::setModelDirectory(const char* dir) {
     return CAR_STATUS_OK;
 }
 
+void Phase0Session::getPerceptionStatsSnapshot(
+        CARPerceptionStats* outStats) const {
+    if (!outStats) return;
+    outStats->facesDetected =
+        p2_->statFacesDetected.load(std::memory_order_relaxed);
+    outStats->skinBaselineLuma =
+        p2_->statSkinLuma.load(std::memory_order_relaxed);
+    outStats->skinToneValid =
+        p2_->statSkinValid.load(std::memory_order_relaxed);
+    // Per-model inference times / filter counts: not yet surfaced by the
+    // pipeline — read as 0 until WP-E plumbs them through.
+}
+
 NeuralBackend* Phase0Session::neuralBackend() {
     if (!p2_->neuralBackend) {
         BackendConfig bc;
@@ -153,6 +166,19 @@ void Phase0Session::renderFramePhase2(int64_t captureTimestampNs) {
     //    (set by car_p2_graph_set / car_p2_graph_clear).
     const PerceptionFrame& frame =
         perceptionPipeline().run(cameraOutputTexture(), captureTimestampNs);
+
+    // Publish the stats snapshot for car_p1_get_perception_stats (read from
+    // the platform channel thread; see Phase2Members).
+    p2_->statFacesDetected.store((int)frame.faces.size(),
+                                 std::memory_order_relaxed);
+    if (!frame.faces.empty()) {
+        const auto& tone = frame.faces.front().skinTone;
+        p2_->statSkinLuma.store(tone.valid ? tone.baselineLuma : 0.0f,
+                                std::memory_order_relaxed);
+        p2_->statSkinValid.store(tone.valid ? 1 : 0, std::memory_order_relaxed);
+    } else {
+        p2_->statSkinValid.store(0, std::memory_order_relaxed);
+    }
 
     // 3. Run the effect graph. If empty, this just blits camera → display.
     effectGraph().render(cameraOutputTexture(), frame, displayFramebuffer());

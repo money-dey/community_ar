@@ -115,6 +115,25 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 }
                 "getEffectCount"   -> result.success(
                     if (nativeSessionPtr != 0L) nativeGetEffectCount(nativeSessionPtr) else 0)
+                // Perception stats (Phase 1 — WP-E first slice). Feeds the
+                // example app's HUD; facesDetected is the key bring-up signal.
+                "getPerceptionStats" -> {
+                    if (nativeSessionPtr == 0L) { result.success(null) } else {
+                        val v = nativeGetPerceptionStats(nativeSessionPtr)
+                        if (v == null || v.size < 8) { result.success(null) } else {
+                            result.success(mapOf(
+                                "facesDetected"       to v[0].toInt(),
+                                "faceMeshInferenceMs" to v[1].toDouble(),
+                                "irisInferenceMs"     to v[2].toDouble(),
+                                "hairSegInferenceMs"  to v[3].toDouble(),
+                                "pnpSolveMs"          to v[4].toDouble(),
+                                "activeFilterCount"   to v[5].toInt(),
+                                "skinBaselineLuma"    to v[6].toDouble(),
+                                "skinToneValid"       to (v[7] != 0f),
+                            ))
+                        }
+                    }
+                }
                 "outputTextureId"  -> result.success(surfaceEntry?.id() ?: -1)
                 "outputDimensions" -> result.success(getOutputDimensions())
                 "getStats"         -> result.success(getStats())
@@ -420,6 +439,7 @@ class CommunityARPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                                               configs: Array<ByteArray>): Int
     private external fun nativeClearEffectGraph(ptr: Long): Int
     private external fun nativeGetEffectCount(ptr: Long): Int
+    private external fun nativeGetPerceptionStats(ptr: Long): FloatArray?
     private external fun nativeSetTestMode(ptr: Long, mode: Int)
     private external fun nativeGetOutputDimensions(ptr: Long, out: IntArray)
     private external fun nativeGetStats(ptr: Long): FloatArray

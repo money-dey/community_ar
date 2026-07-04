@@ -156,6 +156,29 @@ Java_dev_communityar_CommunityARPlugin_nativeGetEffectCount(
         car_p2_graph_effect_count(reinterpret_cast<CARSession*>(ptr)));
 }
 
+// Perception stats (Phase 1 — first slice of AR_INTEGRATION_SPEC.md WP-E).
+// Flat float array; Kotlin maps it to the keys the Dart HUD expects.
+JNIEXPORT jfloatArray JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeGetPerceptionStats(
+        JNIEnv* env, jobject, jlong ptr) {
+    CARPerceptionStats s{};
+    car_p1_get_perception_stats(reinterpret_cast<CARSession*>(ptr), &s);
+    jfloatArray arr = env->NewFloatArray(8);
+    if (!arr) return nullptr;
+    const jfloat v[8] = {
+        static_cast<jfloat>(s.facesDetected),
+        s.faceMeshInferenceMs,
+        s.irisInferenceMs,
+        s.hairSegInferenceMs,
+        s.pnpSolveMs,
+        static_cast<jfloat>(s.activeFilterCount),
+        s.skinBaselineLuma,
+        static_cast<jfloat>(s.skinToneValid),
+    };
+    env->SetFloatArrayRegion(arr, 0, 8, v);
+    return arr;
+}
+
 JNIEXPORT void JNICALL
 Java_dev_communityar_CommunityARPlugin_nativeSetTestMode(
         JNIEnv*, jobject, jlong ptr, jint mode) {

@@ -29,6 +29,7 @@ set(CAR_SOURCES
     # Session + ABI
     native/core/phase0_session.cpp
     native/core/ffi/community_ar_phase0_api.cpp
+    native/core/ffi/community_ar_phase1_api.cpp
 
     # Perception orchestrator
     native/core/perception/perception_pipeline.cpp

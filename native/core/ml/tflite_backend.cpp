@@ -248,7 +248,7 @@ public:
         if (!blitter_->readback(staging_, nullptr, nullptr)) {
             return InputBindingMode::CpuUpload;
         }
-        copyStagingToInputTensor(inputIndex, mw, mh);
+        copyStagingToInputTensor(inputIndex, mw, mh, srcRect.signedInput);
         return InputBindingMode::CpuUpload;
     }
 
@@ -329,11 +329,12 @@ private:
     }
 
     // RGBA8 staging → the input tensor's layout (HWC, C from the tensor
-    // shape). Float tensors get [0, 1] — matching what a bound GL texture
-    // would sample — so models tuned for either binding mode see the same
-    // range. (If a model genuinely needs [-1, 1], that offset belongs in the
-    // model wrapper, not here, to keep the two modes equivalent.)
-    void copyStagingToInputTensor(int inputIndex, int w, int h) {
+    // shape). Float tensors get [0, 1] by default, or [-1, 1] when the
+    // caller flags a signed-input model (CameraInputRect::signedInput —
+    // MediaPipe's face_detection is trained on [-1, 1]; FaceMesh/Iris/
+    // segmenters on [0, 1]).
+    void copyStagingToInputTensor(int inputIndex, int w, int h,
+                                  bool signedInput) {
         TfLiteTensor* t = TfLiteInterpreterGetInputTensor(interp_, inputIndex);
         if (!t) return;
         const TensorShape& sh = inputSpecs_[inputIndex].shape;
@@ -344,10 +345,12 @@ private:
         if (TfLiteTensorType(t) == kTfLiteFloat32) {
             floatStaging_.resize(n * c);
             float* dst = floatStaging_.data();
-            constexpr float kInv255 = 1.0f / 255.0f;
+            const float scale  = signedInput ? 2.0f / 255.0f : 1.0f / 255.0f;
+            const float offset = signedInput ? -1.0f : 0.0f;
             for (size_t i = 0; i < n; ++i) {
                 for (int ch = 0; ch < c; ++ch) {
-                    dst[i * c + ch] = (ch < 4 ? src[i * 4 + ch] : 0) * kInv255;
+                    dst[i * c + ch] =
+                        (ch < 4 ? src[i * 4 + ch] : 0) * scale + offset;
                 }
             }
             const size_t bytes = floatStaging_.size() * sizeof(float);
@@ -499,9 +502,25 @@ public:
             return nullptr;
         }
 
-        LOGI("Loaded %s (accelerator: %s)", name.c_str(), activeAccelerator_.c_str());
-        return std::make_unique<TfliteModel>(m, interp, gpuDel, gpuActive,
-                                             cfg_.renderContext, &blitter_);
+        auto model = std::make_unique<TfliteModel>(m, interp, gpuDel, gpuActive,
+                                                   cfg_.renderContext, &blitter_);
+        // One-line tensor-shape dump: on-device this is what verifies layout
+        // assumptions (e.g. BlazeFace's two-output [1,N,16]+[1,N,1] shape).
+        std::string shapes;
+        char buf[48];
+        for (const auto& s : model->inputs()) {
+            snprintf(buf, sizeof(buf), " in[%d,%d,%d,%d]", s.shape.dims[0],
+                     s.shape.dims[1], s.shape.dims[2], s.shape.dims[3]);
+            shapes += buf;
+        }
+        for (const auto& s : model->outputs()) {
+            snprintf(buf, sizeof(buf), " out[%d,%d,%d,%d]", s.shape.dims[0],
+                     s.shape.dims[1], s.shape.dims[2], s.shape.dims[3]);
+            shapes += buf;
+        }
+        LOGI("Loaded %s (accelerator: %s)%s", name.c_str(),
+             activeAccelerator_.c_str(), shapes.c_str());
+        return model;
     }
 
     const char* activeAcceleratorName() const override {
