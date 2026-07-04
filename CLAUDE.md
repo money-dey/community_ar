@@ -162,6 +162,16 @@ This is intentional. The async readback pattern avoids stalling the render threa
 ### TFLite GPU delegate's "experimental flag" naming changes between versions
 The exact flag enabling persistent GL textures has a name that varies. Check against the specific TFLite version you're linking. There's a TODO in `tflite_backend.cpp` flagging this.
 
+### GLSL ES reserved keywords compile on some drivers and not others
+`input`, `output`, `sample`, `filter` are *reserved* in GLSL ES. Desktop-ish
+drivers often accept them as identifiers; strict mobile compilers (seen on a
+MediaTek device) reject the whole shader — the recolor pass was dead on-device
+while working "everywhere else". Don't use reserved words as identifiers in
+inline shaders, and remember there is no shader-lint in the dev environment:
+the first real GLSL check is the device driver. A failed link also used to
+spam `GL_INVALID_OPERATION` every frame; `GlesShaderProgram::use()` now logs
+once and no-ops instead.
+
 ### Concave contours produce overlapping triangles in the mask rasterizer
 The lip outline is mildly concave at the cupid's bow. Our simple triangle-fan rasterizer produces overlap in concave regions. The smoothstep at the end of the shader clamps it back to 1.0, so the final mask is correct, but the mask is internally slightly "hot" in those regions. If we ever need true concave handling (Phase 6+), switch to ear-clipping triangulation.
 
