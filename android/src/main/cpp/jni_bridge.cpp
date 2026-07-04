@@ -179,6 +179,38 @@ Java_dev_communityar_CommunityARPlugin_nativeGetPerceptionStats(
     return arr;
 }
 
+// WP-E debug controls. Thin marshalling only — thread-safety (atomics /
+// render-queue hop) lives behind the car_p1_* calls.
+JNIEXPORT void JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeSetDebugOverlay(
+        JNIEnv*, jobject, jlong ptr, jint modeMask) {
+    car_p1_set_debug_overlay(reinterpret_cast<CARSession*>(ptr),
+                             static_cast<uint32_t>(modeMask));
+}
+
+JNIEXPORT void JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeForcePerception(
+        JNIEnv*, jobject, jlong ptr,
+        jint faceLandmarks, jint iris, jint hair,
+        jint selfieSeg, jint pose, jint skinTone) {
+    CARPerceptionRequest req{};
+    req.needFaceLandmarks = faceLandmarks;
+    req.needIris          = iris;
+    req.needHair          = hair;
+    req.needSelfieSeg     = selfieSeg;
+    req.needPose          = pose;
+    req.needSkinTone      = skinTone;
+    car_p1_force_perception(reinterpret_cast<CARSession*>(ptr), &req);
+}
+
+JNIEXPORT void JNICALL
+Java_dev_communityar_CommunityARPlugin_nativeSetOneEuroParams(
+        JNIEnv*, jobject, jlong ptr,
+        jfloat minCutoff, jfloat beta, jfloat dCutoff) {
+    car_p1_set_one_euro_params(reinterpret_cast<CARSession*>(ptr),
+                               minCutoff, beta, dCutoff);
+}
+
 JNIEXPORT void JNICALL
 Java_dev_communityar_CommunityARPlugin_nativeSetTestMode(
         JNIEnv*, jobject, jlong ptr, jint mode) {

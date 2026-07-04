@@ -22,6 +22,19 @@ class EffectGraph;
 class PerceptionPipeline;
 class NeuralBackend;
 
+// CARPerceptionRequest (six ints, car_p1_force_perception) packed into one
+// atomic bitmask so it crosses the platform→render thread boundary without
+// locks. Consumed by setForcedPerceptionBits(); unpacked into
+// PerceptionInputs each frame in renderFramePhase2().
+enum : uint32_t {
+    kForceFaceLandmarks = 1u << 0,
+    kForceIris          = 1u << 1,
+    kForceHair          = 1u << 2,
+    kForceSelfieSeg     = 1u << 3,
+    kForcePose          = 1u << 4,
+    kForceSkinTone      = 1u << 5,
+};
+
 class Phase0Session {
 public:
     explicit Phase0Session(const CARPhase0Config& cfg);
@@ -79,6 +92,15 @@ public:
     // readable from the platform channel thread. Fields the pipeline doesn't
     // surface yet (per-model inference times) read as 0.
     void getPerceptionStatsSnapshot(CARPerceptionStats* outStats) const;
+
+    // ---- WP-E debug controls (any thread; latest-wins atomics) ----
+    // Overlay mask (CARDebugOverlay bits): nonzero routes AR frames through
+    // the Phase 2 path even with an empty effect graph and composites the
+    // overlay over the output. Forced-perception bits (kForce* below) are
+    // OR'd into the effect graph's perception requirements each frame so
+    // overlays have data with no effect installed.
+    void setDebugOverlayMask(uint32_t modeMask);
+    void setForcedPerceptionBits(uint32_t bits);
 
     void getStats(CARPhase0Stats* outStats) const;
 

@@ -79,15 +79,21 @@ device through four on-device debug iterations.
    bundling/extraction, AR render path (`car_p2_submit_frame_display`), effect
    graph channel. Plus on-device debug iterations 1–4 (PRs #31–#34): recolor
    shader fix, `blit()` + graph race, BlazeFace decoder, rasterizer VBO crash.
-2. **On-device iteration 5** — merge PR #35 (landmark/iris pixel-unit scaling),
-   rebuild, run on device. Acceptance: HUD `faces:1` persists, lipstick lands
-   on lips, beauty smoothing visible. Debugging technique that works:
+2. **On-device iteration 5** — merge PR #35 (landmark/iris pixel-unit scaling)
+   + PR #36 (WP-E debug overlays, stacked on #35), rebuild, run on device.
+   **Debug-first this time:** with NO effect installed, toggle the Landmarks
+   overlay → ~478 green dots should track the face (directly shows where
+   landmarks land — the observability we lacked). Then Iris (blue circles),
+   HairMask (green tint on hair), Pose (RGB axis dots), One-Euro sliders
+   (dot jitter visibly changes). Then install lipstick and check placement
+   against the dots. Older techniques that still work: HUD `faces:` count,
    llvm-symbolizer against the unstripped
-   `example/build/.../obj/arm64-v8a/libcommunity_ar_native.so`; the loadModel
-   tensor-shape log lines verify layout assumptions.
+   `example/build/.../obj/arm64-v8a/libcommunity_ar_native.so`, loadModel
+   tensor-shape log lines.
 3. **Perception-quality pass** — lip placement, mask edges, iris radii, then
    the diverse-face checklist in [`../TESTING.md`](../TESTING.md).
-4. **WP-D (beauty controls) + rest of WP-E (debug overlays)** from the spec.
+4. **WP-D (beauty controls) + rest of WP-E** (per-model inference-ms stats
+   are still zero in the HUD) from the spec.
 5. **Live device-rotation follow-up**
    ([`ANDROID_RENDER_PIPELINE.md`](ANDROID_RENDER_PIPELINE.md) §4); iOS bring-up
    (needs a Mac).

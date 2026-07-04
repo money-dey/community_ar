@@ -7,28 +7,17 @@
 // "documented but never implemented" consolidation gap, invisible until the
 // first caller referenced a symbol and the link failed.
 //
-// Currently implemented for real: car_p1_get_perception_stats (feeds the
-// example app's HUD — facesDetected is the key bring-up signal). The other
-// three calls are accepted-but-inert until WP-E wires them through the
-// session (they log once so on-device testing isn't misled).
+// All four calls are now real (WP-E): stats snapshot, debug-overlay mask,
+// One-Euro tuning, forced perception. Overlay/forced state crosses to the
+// render thread as latest-wins atomics on the session; filter params go
+// through the render queue because they mutate per-track filter banks that
+// only the render thread touches.
 // =============================================================================
 
 #include "community_ar_phase1_api.h"
 #include "../phase0_session.h"
-
-#if defined(__ANDROID__)
-#include <android/log.h>
-#define P1_LOGW_ONCE(msg)                                              \
-    do {                                                               \
-        static bool _logged = false;                                   \
-        if (!_logged) {                                                \
-            _logged = true;                                            \
-            __android_log_print(ANDROID_LOG_WARN, "CommunityAR", msg); \
-        }                                                              \
-    } while (0)
-#else
-#define P1_LOGW_ONCE(msg) ((void)0)
-#endif
+#include "../perception/perception_pipeline.h"  // complete type for the
+                                                // queued setLandmarkFilterParams
 
 using community_ar::Phase0Session;
 
@@ -44,25 +33,40 @@ CAR_EXPORT void car_p1_get_perception_stats(CARSession* session,
 }
 
 CAR_EXPORT CARStatus car_p1_set_debug_overlay(CARSession* session,
-                                              uint32_t /*modeMask*/) {
+                                              uint32_t modeMask) {
     if (!session) return CAR_STATUS_INVALID_SESSION;
-    P1_LOGW_ONCE("car_p1_set_debug_overlay: overlay rendering not wired yet (WP-E)");
+    auto* s = reinterpret_cast<Phase0Session*>(session);
+    s->setDebugOverlayMask(modeMask);
     return CAR_STATUS_OK;
 }
 
 CAR_EXPORT CARStatus car_p1_set_one_euro_params(CARSession* session,
-                                                float /*minCutoff*/,
-                                                float /*beta*/,
-                                                float /*dCutoff*/) {
+                                                float minCutoff,
+                                                float beta,
+                                                float dCutoff) {
     if (!session) return CAR_STATUS_INVALID_SESSION;
-    P1_LOGW_ONCE("car_p1_set_one_euro_params: not wired yet (WP-E)");
+    auto* s = reinterpret_cast<Phase0Session*>(session);
+    // Filter banks are per-track state owned by the render thread; mutate
+    // them there. Values are safely captured by copy.
+    s->runOnRenderThread([s, minCutoff, beta, dCutoff]() {
+        s->perceptionPipeline().setLandmarkFilterParams(minCutoff, beta,
+                                                        dCutoff);
+    });
     return CAR_STATUS_OK;
 }
 
 CAR_EXPORT CARStatus car_p1_force_perception(CARSession* session,
                                              const CARPerceptionRequest* req) {
     if (!session || !req) return CAR_STATUS_INVALID_SESSION;
-    P1_LOGW_ONCE("car_p1_force_perception: not wired yet (WP-E)");
+    auto* s = reinterpret_cast<Phase0Session*>(session);
+    uint32_t bits = 0;
+    if (req->needFaceLandmarks) bits |= community_ar::kForceFaceLandmarks;
+    if (req->needIris)          bits |= community_ar::kForceIris;
+    if (req->needHair)          bits |= community_ar::kForceHair;
+    if (req->needSelfieSeg)     bits |= community_ar::kForceSelfieSeg;
+    if (req->needPose)          bits |= community_ar::kForcePose;
+    if (req->needSkinTone)      bits |= community_ar::kForceSkinTone;
+    s->setForcedPerceptionBits(bits);
     return CAR_STATUS_OK;
 }
 

@@ -214,6 +214,25 @@ private:
 };
 
 // -----------------------------------------------------------------------------
+// GLES instanced shader — a shader program that remembers its vertex format.
+//
+// createInstancedShader() gets the InstancedVertexFormat but the base
+// GlesShaderProgram had nowhere to keep it, so per-instance layouts were
+// dropped and drawInstancedQuads stayed a silent no-op (the debug overlay's
+// dots never drew — same stub landmine class as blit()/the rasterizer VBOs).
+// The format lives here; drawInstancedQuads applies it at draw time.
+// -----------------------------------------------------------------------------
+class GlesInstancedShaderProgram : public GlesShaderProgram {
+public:
+    GlesInstancedShaderProgram(const std::string& vs, const std::string& fs,
+                               InstancedVertexFormat fmt)
+        : GlesShaderProgram(vs, fs), fmt_(std::move(fmt)) {}
+    const InstancedVertexFormat& format() const { return fmt_; }
+private:
+    InstancedVertexFormat fmt_;
+};
+
+// -----------------------------------------------------------------------------
 // GLES VertexBuffer — RAII VBO wrapper (extended API; the default-nullptr
 // stubs crashed the mask rasterizer the first time a face was detected).
 // -----------------------------------------------------------------------------
@@ -375,15 +394,89 @@ public:
         }
     }
 
-    // On GLES the vertex layout is applied at draw time (drawTriangles sets up
-    // the rasterizer's pos-2f + alpha-1f attribs), so a "shader with a vertex
-    // format" is just a shader program. Per-instance attributes are NOT
-    // supported (drawInstancedQuads remains a stub); the only current caller
-    // (mask rasterizer) uses perInstanceStride = 0.
+    // The returned program carries its vertex format so drawInstancedQuads can
+    // apply it at draw time. Callers that never instance (the mask rasterizer
+    // passes perInstanceStride = 0 and draws via drawTriangles, which sets its
+    // own pos-2f + alpha-1f layout) are unaffected.
     std::unique_ptr<ShaderProgram> createInstancedShader(
             const std::string& vs, const std::string& fs,
-            const InstancedVertexFormat& /*fmt*/) override {
-        return std::make_unique<GlesShaderProgram>(vs, fs);
+            const InstancedVertexFormat& fmt) override {
+        return std::make_unique<GlesInstancedShaderProgram>(vs, fs, fmt);
+    }
+
+    // Instanced quads (debug-overlay dots): per-vertex corners + per-instance
+    // center/radius/color via glVertexAttribDivisor — core in ES 3.0.
+    //
+    // Blend state is owned HERE, and it is classic src-alpha: the overlay
+    // composites over the effect output. Deliberately NOT
+    // enableAlphaBlending(), which is ADDITIVE and belongs to the mask
+    // rasterizer's accumulate-and-clamp scheme (see the comment there) — the
+    // two consumers need different blending, so each draw path sets its own.
+    //
+    // `program` must come from createInstancedShader with a non-empty
+    // per-instance layout (the only way to express an instanced draw in this
+    // API); anything else is a caller bug we degrade on, log-once.
+    void drawInstancedQuads(ShaderProgram* program,
+                            VertexBuffer* perVertex, int vertexCount,
+                            VertexBuffer* perInstance,
+                            int instanceCount) override {
+        if (!program || !perVertex || !perInstance ||
+            vertexCount <= 0 || instanceCount <= 0) return;
+        const auto& fmt =
+            static_cast<GlesInstancedShaderProgram*>(program)->format();
+        if (fmt.perInstanceStride <= 0 || fmt.perInstanceAttrs.empty()) {
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                LOGE("drawInstancedQuads: shader has no per-instance layout");
+            }
+            return;
+        }
+
+        glBindBuffer(GL_ARRAY_BUFFER,
+                     static_cast<GLuint>(perVertex->nativeHandle()));
+        for (const auto& a : fmt.perVertexAttrs) {
+            glEnableVertexAttribArray(a.location);
+            glVertexAttribPointer(a.location, a.size, GL_FLOAT, GL_FALSE,
+                                  fmt.perVertexStride,
+                                  reinterpret_cast<void*>((intptr_t)a.offset));
+            glVertexAttribDivisor(a.location, 0);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER,
+                     static_cast<GLuint>(perInstance->nativeHandle()));
+        for (const auto& a : fmt.perInstanceAttrs) {
+            glEnableVertexAttribArray(a.location);
+            glVertexAttribPointer(a.location, a.size, GL_FLOAT, GL_FALSE,
+                                  fmt.perInstanceStride,
+                                  reinterpret_cast<void*>((intptr_t)a.offset));
+            glVertexAttribDivisor(a.location, 1);
+        }
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, vertexCount, instanceCount);
+        glDisable(GL_BLEND);
+
+        // Reset divisors so later non-instanced draws (drawTriangles reuses
+        // these attrib slots) don't inherit instancing.
+        for (const auto& a : fmt.perVertexAttrs)
+            glDisableVertexAttribArray(a.location);
+        for (const auto& a : fmt.perInstanceAttrs) {
+            glVertexAttribDivisor(a.location, 0);
+            glDisableVertexAttribArray(a.location);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
+    // Size of the render target bindFramebuffer/bindDisplayFramebuffer set up
+    // (both set the viewport to the full target, so the viewport IS the size).
+    // The debug overlay divides by this for circular dots — the default no-op
+    // would hand it 0×0 and NaN out every dot position.
+    void currentFramebufferSize(int* outW, int* outH) const override {
+        GLint vp[4] = {0, 0, 0, 0};
+        glGetIntegerv(GL_VIEWPORT, vp);
+        if (outW) *outW = vp[2];
+        if (outH) *outH = vp[3];
     }
 
     // ADDITIVE blending, deliberately: the only consumer is the mask
